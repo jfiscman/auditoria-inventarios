@@ -123,6 +123,110 @@ st.markdown("""
         border-right: 1px solid #e2e1dd;
     }
     section[data-testid="stSidebar"] .stMarkdown { color: #374151; }
+    /* Sucursal cards */
+    .sucursal-card {
+        background: white;
+        border-radius: 14px;
+        padding: 20px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+        transition: all 0.15s;
+        cursor: pointer;
+        border: 1px solid #e8e7e4;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+    }
+    .sucursal-card:hover {
+        box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+        border-color: #c7c5c0;
+        transform: translateY(-1px);
+    }
+    .sucursal-card .nombre {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #111827;
+        margin-bottom: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .sucursal-card .nombre .badge-count {
+        background: #4f46e5;
+        color: white;
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 1px 10px;
+        border-radius: 20px;
+    }
+    .sucursal-card .meta {
+        color: #9ca3af;
+        font-size: 0.82rem;
+        margin-bottom: 10px;
+    }
+    .sucursal-card .stats-row {
+        display: flex;
+        gap: 16px;
+        margin-top: auto;
+        padding-top: 10px;
+        border-top: 1px solid #f0efec;
+    }
+    .sucursal-card .stat-item {
+        text-align: center;
+        flex: 1;
+    }
+    .sucursal-card .stat-item .num {
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: #111827;
+    }
+    .sucursal-card .stat-item .label {
+        font-size: 0.7rem;
+        color: #9ca3af;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+    .sucursal-card .stat-item .num.aprobada { color: #16a34a; }
+    .sucursal-card .stat-item .num.observada { color: #d97706; }
+    .sucursal-card .stat-item .num.rechazada { color: #dc2626; }
+    /* Timeline */
+    .timeline-item {
+        background: white;
+        border-radius: 12px;
+        padding: 16px 20px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        margin-bottom: 8px;
+        border-left: 4px solid #d1d5db;
+        transition: box-shadow 0.15s;
+    }
+    .timeline-item:hover {
+        box-shadow: 0 3px 12px rgba(0,0,0,0.08);
+    }
+    .timeline-item.aprobada { border-left-color: #16a34a; }
+    .timeline-item.observada { border-left-color: #d97706; }
+    .timeline-item.rechazada { border-left-color: #dc2626; }
+    .timeline-item .tl-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .timeline-item .tl-fecha {
+        color: #9ca3af;
+        font-size: 0.82rem;
+    }
+    .timeline-item .tl-veredicto {
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+    .timeline-item .tl-stats {
+        color: #6b7280;
+        font-size: 0.85rem;
+        margin-top: 4px;
+    }
+    .timeline-item .tl-actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+    }
     div[data-testid="stExpander"] {
         background: white;
         border-radius: 12px;
@@ -367,6 +471,59 @@ def estadisticas_generales() -> dict:
     """).fetchone()
     conn.close()
     return dict(r)
+
+
+def listar_sucursales() -> list:
+    """Devuelve lista de sucursales con estadísticas resumidas."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT
+            sucursal,
+            COUNT(*) as total_auditorias,
+            MAX(fecha) as ultima_fecha,
+            ROUND(AVG(pct_coincidencia), 1) as promedio_coincidencia,
+            MIN(pct_coincidencia) as peor_coincidencia,
+            SUM(CASE WHEN veredicto = 'APROBADA' THEN 1 ELSE 0 END) as aprobadas,
+            SUM(CASE WHEN veredicto = 'OBSERVADA' THEN 1 ELSE 0 END) as observadas,
+            SUM(CASE WHEN veredicto = 'RECHAZADA' THEN 1 ELSE 0 END) as rechazadas
+        FROM auditorias
+        WHERE sucursal != ''
+        GROUP BY sucursal
+        ORDER BY ultima_fecha DESC
+    """).fetchall()
+    # También incluir las que no tienen sucursal
+    orphans = conn.execute("""
+        SELECT
+            '(Sin sucursal)' as sucursal,
+            COUNT(*) as total_auditorias,
+            MAX(fecha) as ultima_fecha,
+            ROUND(AVG(pct_coincidencia), 1) as promedio_coincidencia,
+            MIN(pct_coincidencia) as peor_coincidencia,
+            SUM(CASE WHEN veredicto = 'APROBADA' THEN 1 ELSE 0 END) as aprobadas,
+            SUM(CASE WHEN veredicto = 'OBSERVADA' THEN 1 ELSE 0 END) as observadas,
+            SUM(CASE WHEN veredicto = 'RECHAZADA' THEN 1 ELSE 0 END) as rechazadas
+        FROM auditorias
+        WHERE sucursal = ''
+    """).fetchone()
+    conn.close()
+    resultado = [dict(r) for r in rows]
+    if orphans and orphans['total_auditorias'] > 0:
+        resultado.append(dict(orphans))
+    return resultado
+
+
+def auditorias_por_sucursal(sucursal: str) -> list:
+    """Devuelve todas las auditorías de una sucursal, ordenadas por fecha."""
+    if sucursal == '(Sin sucursal)':
+        sucursal = ''
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT * FROM auditorias
+        WHERE sucursal = ?
+        ORDER BY fecha DESC
+    """, (sucursal,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 # Inicializar base de datos al arrancar
@@ -721,6 +878,8 @@ if 'pagina' not in st.session_state:
     st.session_state.pagina = 'nueva'
 if 'audit_id_ver' not in st.session_state:
     st.session_state.audit_id_ver = None
+if 'sucursal_ver' not in st.session_state:
+    st.session_state.sucursal_ver = None
 
 # Título
 st.markdown(
@@ -1004,7 +1163,13 @@ with tabs[0]:
 # ─────────────────────────────────────────────
 
 with tabs[1]:
-    # ─── Ver auditoría específica ───
+    # ─── 3 niveles de navegación:
+    #   Nivel 1 → auditoría específica (audit_id_ver)
+    #   Nivel 2 → historial de sucursal  (sucursal_ver)
+    #   Nivel 3 → panel de sucursales    (default)
+    # ─────────────────────────────────────────────
+
+    # ─── NIVEL 1: Ver auditoría específica ───
     if st.session_state.get('audit_id_ver'):
         audit_id_ver = st.session_state.audit_id_ver
         data = obtener_auditoria(audit_id_ver)
@@ -1019,10 +1184,12 @@ with tabs[1]:
         s_hist = resultado_hist['stats']
         tabs_hist = resultado_hist['tablas']
 
-        # Botón volver
-        if st.button("← Volver al historial", use_container_width=False):
-            st.session_state.audit_id_ver = None
-            st.rerun()
+        # Botón volver — va a sucursal si venimos de ahí, si no al panel
+        col_back, _ = st.columns([1, 4])
+        with col_back:
+            if st.button("← Volver", use_container_width=False):
+                st.session_state.audit_id_ver = None
+                st.rerun()
 
         st.markdown("---")
 
@@ -1097,68 +1264,149 @@ with tabs[1]:
 
         st.stop()
 
-    # ─── Listado de historial ───
-    st.markdown("### 📋 Auditorías guardadas")
+    # ─── NIVEL 2: Ver historial de una sucursal ───
+    if st.session_state.get('sucursal_ver'):
+        sucursal_nombre = st.session_state.sucursal_ver
 
-    # Filtros
-    col_f1, col_f2, col_f3 = st.columns([2, 2, 1])
-    with col_f1:
-        filtro_sucursal = st.text_input("🔍 Filtrar por sucursal", placeholder="Buscar...")
-    with col_f2:
-        filtro_veredicto = st.selectbox(
-            "Filtrar por resultado",
-            ["Todas", "APROBADA", "OBSERVADA", "RECHAZADA"],
+        col_back, _ = st.columns([1, 4])
+        with col_back:
+            if st.button("← Todas las sucursales", use_container_width=False):
+                st.session_state.sucursal_ver = None
+                st.rerun()
+
+        st.markdown(f"### 🏪 {sucursal_nombre}")
+        st.markdown(
+            f"<p style='color: #6b7280;'>Todas las auditorías realizadas en esta sucursal.</p>",
+            unsafe_allow_html=True,
         )
-    with col_f3:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🔄 Refrescar", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
 
-    # Obtener lista
-    vf = "" if filtro_veredicto == "Todas" else filtro_veredicto
-    auditorias = listar_auditorias(limit=100, sucursal_filtro=filtro_sucursal, veredicto_filtro=vf)
+        auditorias_suc = auditorias_por_sucursal(sucursal_nombre)
 
-    if not auditorias:
+        if not auditorias_suc:
+            st.info("📭 No hay auditorías para esta sucursal.")
+            st.stop()
+
+        # Resumen de la sucursal
+        total = len(auditorias_suc)
+        aprob = sum(1 for a in auditorias_suc if a['veredicto'] == 'APROBADA')
+        observ = sum(1 for a in auditorias_suc if a['veredicto'] == 'OBSERVADA')
+        rechaz = sum(1 for a in auditorias_suc if a['veredicto'] == 'RECHAZADA')
+        prom_pct = sum(a['pct_coincidencia'] for a in auditorias_suc) / total if total else 0
+        ultima = datetime.fromisoformat(auditorias_suc[0]['fecha']).strftime('%d/%m/%Y')
+        primera = datetime.fromisoformat(auditorias_suc[-1]['fecha']).strftime('%d/%m/%Y')
+
+        col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+        col_s1.metric("Auditorías", total)
+        col_s2.metric("Promedio", f"{prom_pct:.1f}%")
+        col_s3.metric("Período", f"{primera} — {ultima}")
+        col_s4.metric("Resultados", f"✅ {aprob} · ⚠️ {observ} · 🔴 {rechaz}")
+
+        # Evolución del % de coincidencia
+        evol = []
+        for a in reversed(auditorias_suc):
+            evol.append({
+                'Fecha': datetime.fromisoformat(a['fecha']).strftime('%d/%m'),
+                '% Coincidencia': a['pct_coincidencia'],
+                'Resultado': a['veredicto'],
+            })
+        df_evol = pd.DataFrame(evol)
+        if len(df_evol) >= 2:
+            st.markdown("### 📈 Evolución")
+            st.line_chart(df_evol.set_index('Fecha')['% Coincidencia'])
+
+        st.markdown("---")
+        st.markdown("### 📋 Historial de auditorías")
+
+        # Timeline
+        for a in auditorias_suc:
+            ver_color = {"APROBADA": "aprobada", "OBSERVADA": "observada", "RECHAZADA": "rechazada"}
+            css_class = ver_color.get(a['veredicto'], "")
+            icono = "✅" if a['veredicto'] == "APROBADA" else "⚠️" if a['veredicto'] == "OBSERVADA" else "🔴"
+            fecha = datetime.fromisoformat(a['fecha']).strftime('%d/%m/%Y %H:%M')
+
+            st.markdown(f"""
+            <div class="timeline-item {css_class}">
+                <div class="tl-header">
+                    <span class="tl-fecha">{fecha} · ID #{a['id']}</span>
+                    <span class="tl-veredicto">{icono} {a['veredicto']}</span>
+                </div>
+                <div class="tl-stats">
+                    {a['coinciden']}/{a['total_sku']} OK ({a['pct_coincidencia']}%) ·
+                    Falt: {a['faltantes']} · Sobr: {a['sobrantes']} ·
+                    {a['archivo_fisico']} / {a['archivo_central']}
+                </div>
+                <div class="tl-actions">
+            """, unsafe_allow_html=True)
+
+            col_t1, col_t2 = st.columns([1, 8])
+            with col_t1:
+                if st.button("👁️ Ver", key=f"ver_{a['id']}", use_container_width=True):
+                    st.session_state.audit_id_ver = a['id']
+                    st.rerun()
+            with col_t2:
+                if st.button("🗑️ Eliminar", key=f"del_{a['id']}", use_container_width=True):
+                    eliminar_auditoria(a['id'])
+                    st.cache_data.clear()
+                    st.rerun()
+
+        st.stop()
+
+    # ─── NIVEL 3: Panel de sucursales (default) ───
+    st.markdown("### 🏪 Sucursales")
+
+    sucursales = listar_sucursales()
+
+    if not sucursales:
         st.info("📭 No hay auditorías guardadas todavía. Ejecutá una auditoría "
                 "desde la pestaña **➕ Nueva Auditoría** y se guardará automáticamente.")
         st.stop()
 
-    # Mostrar cada auditoría como una tarjeta
-    for a in auditorias:
-        ver_color = {"APROBADA": "aprobada", "OBSERVADA": "observada", "RECHAZADA": "rechazada"}
-        css_class = ver_color.get(a['veredicto'], "")
-        icono = "✅" if a['veredicto'] == "APROBADA" else "⚠️" if a['veredicto'] == "OBSERVADA" else "🔴"
+    # Métrica global
+    total_audits = sum(s['total_auditorias'] for s in sucursales)
+    st.markdown(
+        f"<p style='color: #6b7280;'>{total_audits} auditorías en {len(sucursales)} sucursales.</p>",
+        unsafe_allow_html=True,
+    )
 
-        fecha = datetime.fromisoformat(a['fecha']).strftime('%d/%m/%Y %H:%M')
+    # Grilla de sucursales
+    cols_grilla = st.columns(3)
+    for i, s in enumerate(sucursales):
+        with cols_grilla[i % 3]:
+            nombre = s['sucursal'] if s['sucursal'] else '(Sin sucursal)'
+            ultima = datetime.fromisoformat(s['ultima_fecha']).strftime('%d/%m/%Y') if s['ultima_fecha'] else '—'
+            prom = s['promedio_coincidencia'] or 0
+            icono = "✅" if prom >= 95 else "⚠️" if prom >= 80 else "🔴"
 
-        col_a1, col_a2, col_a3 = st.columns([5, 1, 1])
-
-        with col_a1:
             st.markdown(f"""
-            <div class="historial-card {css_class}"
-                 onclick="document.querySelector('[data-testid=\\'column\\']')">
-                <div class="historial-sucursal">{icono} {a['sucursal'] or 'Sin sucursal'}</div>
-                <div class="historial-fecha">{fecha} · ID #{a['id']}</div>
-                <div class="historial-stats">
-                    {a['coinciden']}/{a['total_sku']} OK ({a['pct_coincidencia']}%) ·
-                    Falt: {a['faltantes']} · Sobr: {a['sobrantes']} ·
-                    Archivos: {a['archivo_fisico']} / {a['archivo_central']}
+            <div class="sucursal-card" onclick="this.querySelector('button').click()">
+                <div class="nombre">
+                    {icono} {nombre}
+                    <span class="badge-count">{s['total_auditorias']}</span>
+                </div>
+                <div class="meta">Última: {ultima}</div>
+                <div class="stats-row">
+                    <div class="stat-item">
+                        <div class="num">{prom:.1f}%</div>
+                        <div class="label">Promedio</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="num aprobada">{s['aprobadas']}</div>
+                        <div class="label">✅ OK</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="num observada">{s['observadas']}</div>
+                        <div class="label">⚠️ Obs</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="num rechazada">{s['rechazadas']}</div>
+                        <div class="label">🔴 Rech</div>
+                    </div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
-        with col_a2:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("👁️ Ver", key=f"ver_{a['id']}", use_container_width=True):
-                st.session_state.audit_id_ver = a['id']
-                st.rerun()
-
-        with col_a3:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("🗑️", key=f"del_{a['id']}", use_container_width=True):
-                eliminar_auditoria(a['id'])
-                st.cache_data.clear()
+            if st.button(f"Ver historial", key=f"suc_{i}", use_container_width=True):
+                st.session_state.sucursal_ver = s['sucursal']
                 st.rerun()
 
 # ─── Footer ───
