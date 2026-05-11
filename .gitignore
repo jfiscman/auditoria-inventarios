@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Streamlit
+*.streamlit/
+
+# Auditoría — archivos generados
+auditoria_*.txt
+auditoria_*.csv
+
+# macOS
+.DS_Store
