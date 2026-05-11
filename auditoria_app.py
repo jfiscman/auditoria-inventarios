@@ -526,6 +526,134 @@ def auditorias_por_sucursal(sucursal: str) -> list:
     return [dict(r) for r in rows]
 
 
+def sembrar_datos_ejemplo():
+    """Carga datos de ejemplo en la DB para demostración."""
+    conn = get_db()
+    # Limpiar datos existentes
+    conn.execute("DELETE FROM diferencias")
+    conn.execute("DELETE FROM auditorias")
+
+    import random
+    random.seed(42)
+    from datetime import timedelta
+
+    # Productos base
+    productos = [
+        ('LAP-001', 'LAP-002', 'MON-001', 'TEC-001', 'TEC-002'),
+        ('MOU-001', 'MOU-002', 'AUD-001', 'WEB-001', 'WEB-002'),
+        ('CAB-001', 'CAB-002', 'DIS-001', 'DIS-002', 'TAB-001'),
+        ('TAB-002', 'CHA-001', 'CHA-002', 'CBL-001', 'CBL-002'),
+    ]
+    todos_productos = [p for grupo in productos for p in grupo]
+
+    # Sucursales
+    sucursales_data = [
+        ('Sucursal Centro', 0.92, 0.05),
+        ('Sucursal Norte', 0.78, 0.12),
+        ('Sucursal Oeste', 0.88, 0.08),
+        ('Sucursal Este', 0.65, 0.18),
+    ]
+
+    base_date = datetime.now() - timedelta(days=90)
+
+    for sucursal_nombre, base_accuracy, noise in sucursales_data:
+        num_audits = random.randint(3, 5)
+        for i in range(num_audits):
+            # Fecha escalonada
+            audit_date = base_date + timedelta(days=i * random.randint(15, 30))
+            fecha_str = audit_date.isoformat()
+
+            # Generar stocks
+            fisico_data = {}
+            central_data = {}
+            for sku in todos_productos:
+                q_central = random.randint(0, 30)
+                # Variar precisión según la sucursal
+                if random.random() < base_accuracy:
+                    q_fisico = q_central
+                else:
+                    variacion = int(random.gauss(0, q_central * noise + 1))
+                    q_fisico = max(0, q_central + variacion)
+                central_data[sku] = q_central
+                fisico_data[sku] = q_fisico
+
+            # Construir CSVs
+            import io
+            f_buf = io.StringIO()
+            f_buf.write('sku,cantidad\n')
+            for sku, q in fisico_data.items():
+                f_buf.write(f'{sku},{q}\n')
+            csv_f = f_buf.getvalue()
+
+            c_buf = io.StringIO()
+            c_buf.write('sku,cantidad\n')
+            for sku, q in central_data.items():
+                c_buf.write(f'{sku},{q}\n')
+            csv_c = c_buf.getvalue()
+
+            # Ejecutar comparación
+            df_f = pd.read_csv(io.StringIO(csv_f))
+            df_c = pd.read_csv(io.StringIO(csv_c))
+            resultado = ejecutar_auditoria(df_f, df_c, 'sku', 'cantidad', 'sku', 'cantidad')
+
+            # Guardar overrideando fecha
+            s = resultado['stats']
+            cur = conn.execute("""
+                INSERT INTO auditorias
+                    (fecha, sucursal, archivo_fisico, archivo_central,
+                     total_sku, coinciden, diferencias, sobrantes, faltantes,
+                     solo_fisico, solo_central,
+                     total_unid_fis, total_unid_cen, diferencia_neta,
+                     pct_coincidencia, veredicto,
+                     csv_fisico, csv_central)
+                VALUES (?, ?, ?, ?,
+                        ?, ?, ?, ?, ?,
+                        ?, ?,
+                        ?, ?, ?,
+                        ?, ?,
+                        ?, ?)
+            """, (
+                fecha_str, sucursal_nombre,
+                f'fisico_{sucursal_nombre.lower().replace(" ", "_")}_{i+1}.csv',
+                f'central_{sucursal_nombre.lower().replace(" ", "_")}_{i+1}.csv',
+                s['total_sku'], s['coinciden'], s['diferencias'],
+                s['sobrantes'], s['faltantes'],
+                s['solo_fisico'], s['solo_central'],
+                s['total_fisico'], s['total_central'], s['diferencia_neta'],
+                s['pct_coincidencia'], s['veredicto'],
+                csv_f, csv_c,
+            ))
+            audit_id = cur.lastrowid
+
+            # Guardar diferencias
+            t = resultado['tablas']
+            rows = []
+            for _, row in t['faltantes'].iterrows():
+                rows.append((audit_id, row['SKU'], 'FALTANTE',
+                             int(row['Físico']), int(row['Central']), int(row['Diferencia'])))
+            for _, row in t['sobrantes'].iterrows():
+                rows.append((audit_id, row['SKU'], 'SOBRANTE',
+                             int(row['Físico']), int(row['Central']), int(row['Diferencia'])))
+            for _, row in t['solo_fisico'].iterrows():
+                rows.append((audit_id, row['SKU'], 'SOLO_FISICO',
+                             int(row['Cantidad Físico']), 0, int(row['Cantidad Físico'])))
+            for _, row in t['solo_central'].iterrows():
+                rows.append((audit_id, row['SKU'], 'SOLO_CENTRAL',
+                             0, int(row['Cantidad Central']), -int(row['Cantidad Central'])))
+            for _, row in t['coinciden'].iterrows():
+                rows.append((audit_id, row['SKU'], 'COINCIDE',
+                             int(row['Cantidad']), int(row['Cantidad']), 0))
+            if rows:
+                conn.executemany("""
+                    INSERT INTO diferencias
+                        (audit_id, sku, tipo, cantidad_fisico, cantidad_central, diferencia)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, rows)
+
+    conn.commit()
+    conn.close()
+
+
 # Inicializar base de datos al arrancar
 init_db()
 
@@ -861,7 +989,20 @@ with st.sidebar:
             f"Promedio: <b>{est['promedio_coincidencia']:.1f}%</b></p>",
             unsafe_allow_html=True,
         )
-        st.markdown("---")
+    else:
+        st.markdown("### 📥 ¿Base vacía?")
+        st.markdown(
+            "<p style='color: #6b7280; font-size: 0.85rem;'>"
+            "Cargá datos de ejemplo para explorar la app:</p>",
+            unsafe_allow_html=True,
+        )
+        if st.button("🎲 Cargar datos de ejemplo", use_container_width=True):
+            with st.spinner("Generando auditorías de ejemplo..."):
+                sembrar_datos_ejemplo()
+                st.cache_data.clear()
+                st.rerun()
+
+    st.markdown("---")
 
     st.markdown(
         "<p style='color: #9ca3af; font-size: 0.8rem;'>"
@@ -1107,8 +1248,237 @@ with tabs[0]:
         st.dataframe(tabs_res['solo_central'], use_container_width=True, hide_index=True)
 
     if not tabs_res['coinciden'].empty:
-        with st.expander(f"✅ Productos que coinciden ({len(tabs_res['coinciden'])})"):
+        with st.expander(f"✅ Productos que coinciden ({len(tabs_res['coinciden'])}):"):
             st.dataframe(tabs_res['coinciden'], use_container_width=True, hide_index=True)
+
+    # ─── Métricas avanzadas ───
+    st.markdown("---")
+    st.markdown("### 📈 Métricas de la auditoría")
+
+    tabs_metricas = st.tabs(["📊 Distribución", "🎯 Precisión", "⚠️ Impacto"])
+
+    # Construir df_unificado para métricas
+    df_metricas = pd.DataFrame()
+    for tipo, cols in [
+        ('COINCIDE', ['SKU', 'Cantidad', 'Cantidad', 0]),
+        ('FALTANTE', ['SKU', 'Físico', 'Central', 'Diferencia']),
+        ('SOBRANTE', ['SKU', 'Físico', 'Central', 'Diferencia']),
+        ('SOLO_FISICO', ['SKU', 'Cantidad Físico', 0, 'Cantidad Físico']),
+        ('SOLO_CENTRAL', ['SKU', 0, 'Cantidad Central', 0]),
+    ]:
+        tdf = resultado['tablas'].get({
+            'COINCIDE': 'coinciden',
+            'FALTANTE': 'faltantes',
+            'SOBRANTE': 'sobrantes',
+            'SOLO_FISICO': 'solo_fisico',
+            'SOLO_CENTRAL': 'solo_central',
+        }[tipo], pd.DataFrame())
+        if not tdf.empty:
+            tdf = tdf.copy()
+            tdf['Tipo'] = tipo
+            if tipo == 'COINCIDE':
+                tdf['Diferencia'] = 0
+                tdf['Físico'] = tdf['Cantidad']
+                tdf['Central'] = tdf['Cantidad']
+            elif tipo == 'SOLO_FISICO':
+                tdf['Diferencia'] = tdf['Cantidad Físico']
+            elif tipo == 'SOLO_CENTRAL':
+                tdf['Diferencia'] = -tdf['Cantidad Central']
+            df_metricas = pd.concat([df_metricas, tdf], ignore_index=True)
+
+    with tabs_metricas[0]:
+        st.markdown("**Distribución de diferencias**")
+
+        if not df_metricas.empty:
+            # Categorizar diferencias
+            def cat_diff(d):
+                d = int(d)
+                if d == 0:
+                    return '0 (Coincide)'
+                elif abs(d) == 1:
+                    return '±1'
+                elif abs(d) <= 3:
+                    return '±2 a 3'
+                elif abs(d) <= 10:
+                    return '±4 a 10'
+                else:
+                    return '> ±10'
+
+            df_metricas['Categoría'] = df_metricas['Diferencia'].apply(cat_diff)
+            dist = df_metricas['Categoría'].value_counts().reindex(
+                ['0 (Coincide)', '±1', '±2 a 3', '±4 a 10', '> ±10'],
+                fill_value=0
+            )
+
+            col_dist1, col_dist2 = st.columns([1, 1])
+            with col_dist1:
+                st.bar_chart(dist)
+
+            with col_dist2:
+                st.markdown("**Resumen por categoría**")
+                for cat, count in dist.items():
+                    pct = count / len(df_metricas) * 100
+                    icon = "✅" if cat == '0 (Coincide)' else "⚠️"
+                    st.markdown(
+                        f"{icon} **{cat}:** {count} productos ({pct:.1f}%)"
+                    )
+
+            st.caption(
+                "Productos con diferencia 0 = stock correcto. "
+                "Diferencias > ±10 requieren investigación urgente."
+            )
+
+    with tabs_metricas[1]:
+        st.markdown("**Indicadores de precisión**")
+
+        if not df_metricas.empty:
+            total_items = len(df_metricas)
+            correctos = len(df_metricas[df_metricas['Diferencia'] == 0])
+            incorrectos = total_items - correctos
+            total_unidades_fisico = df_metricas['Físico'].sum()
+            total_unidades_central = df_metricas['Central'].sum()
+
+            # Inventory Accuracy Rate (count-based)
+            iar_count = (correctos / total_items * 100) if total_items else 0
+            # Value-based accuracy
+            iar_value = 100 - (abs(df_metricas['Diferencia']).sum() / max(total_unidades_central, 1) * 100)
+            iar_value = max(0, min(100, iar_value))
+
+            col_p1, col_p2, col_p3 = st.columns(3)
+            col_p1.metric(
+                "📊 Precisión (unidades)",
+                f"{iar_count:.1f}%",
+                help="Porcentaje de SKU que coinciden exactamente"
+            )
+            col_p2.metric(
+                "📦 Precisión (volumen)",
+                f"{iar_value:.1f}%",
+                help="Qué % del volumen total de stock está correcto"
+            )
+            col_p3.metric(
+                "🔢 Error promedio por SKU",
+                f"{abs(df_metricas['Diferencia']).mean():.1f} uds",
+                help="Promedio de unidades de error por producto"
+            )
+
+            # Tabla resumen
+            st.markdown("**Resumen de la auditoría**")
+            resumen_data = {
+                'Indicador': [
+                    'Total SKU analizados',
+                    'SKU correctos',
+                    'SKU con diferencias',
+                    'Total unidades físicas',
+                    'Total unidades central',
+                    'Diferencia neta (uds)',
+                    'Tasa de precisión (SKU)',
+                    'Tasa de precisión (volumen)',
+                    'Error promedio por SKU',
+                ],
+                'Valor': [
+                    f'{total_items}',
+                    f'{correctos}',
+                    f'{incorrectos}',
+                    f'{total_unidades_fisico:,.0f}',
+                    f'{total_unidades_central:,.0f}',
+                    f'{total_unidades_fisico - total_unidades_central:+,.0f}',
+                    f'{iar_count:.1f}%',
+                    f'{iar_value:.1f}%',
+                    f'{abs(df_metricas["Diferencia"]).mean():.1f}',
+                ],
+                'Evaluación': [
+                    '—',
+                    '✅ Bueno' if iar_count >= 95 else '⚠️ Regular' if iar_count >= 80 else '🔴 Malo',
+                    '—',
+                    '—',
+                    '—',
+                    '✅ OK' if abs(total_unidades_fisico - total_unidades_central) < 10 else '⚠️ Revisar' if abs(total_unidades_fisico - total_unidades_central) < 50 else '🔴 Alta',
+                    '✅ Bueno' if iar_count >= 95 else '⚠️ Regular' if iar_count >= 80 else '🔴 Malo',
+                    '✅ Bueno' if iar_value >= 95 else '⚠️ Regular' if iar_value >= 80 else '🔴 Malo',
+                    '✅ Bajo' if abs(df_metricas['Diferencia']).mean() < 2 else '⚠️ Medio' if abs(df_metricas['Diferencia']).mean() < 5 else '🔴 Alto',
+                ],
+            }
+            st.dataframe(
+                pd.DataFrame(resumen_data),
+                use_container_width=True, hide_index=True,
+            )
+
+    with tabs_metricas[2]:
+        st.markdown("**Productos con mayor impacto**")
+
+        if not df_metricas.empty:
+            # Top faltantes (más unidades perdidas)
+            top_falt = df_metricas[df_metricas['Diferencia'] < 0].copy()
+            top_falt['Impacto'] = top_falt['Diferencia'].abs()
+            top_falt = top_falt.nlargest(5, 'Impacto')[['SKU', 'Físico', 'Central', 'Diferencia', 'Impacto']]
+
+            # Top sobrantes (más unidades de más)
+            top_sob = df_metricas[df_metricas['Diferencia'] > 0].copy()
+            top_sob['Impacto'] = top_sob['Diferencia']
+            top_sob = top_sob.nlargest(5, 'Impacto')[['SKU', 'Físico', 'Central', 'Diferencia', 'Impacto']]
+
+            col_i1, col_i2 = st.columns(2)
+
+            with col_i1:
+                st.markdown("**🔴 Top faltantes**")
+                if not top_falt.empty:
+                    st.dataframe(top_falt, use_container_width=True, hide_index=True)
+                else:
+                    st.success("No hay faltantes.")
+
+            with col_i2:
+                st.markdown("**🟡 Top sobrantes**")
+                if not top_sob.empty:
+                    st.dataframe(top_sob, use_container_width=True, hide_index=True)
+                else:
+                    st.success("No hay sobrantes.")
+
+            # Comparativa con histórico de la misma sucursal
+            if sucursal:
+                historial_suc = auditorias_por_sucursal(sucursal)
+                historial_suc = [h for h in historial_suc
+                                 if h['fecha'] < datetime.now().isoformat()]
+                if len(historial_suc) >= 1:
+                    st.markdown("---")
+                    st.markdown("**📊 Comparativa con auditorías anteriores**")
+                    st.caption(
+                        f"Evolución histórica de la sucursal '{sucursal}'"
+                    )
+
+                    data_hist = []
+                    for h in historial_suc:
+                        data_hist.append({
+                            'Fecha': datetime.fromisoformat(h['fecha']).strftime('%d/%m'),
+                            '% Coincidencia': h['pct_coincidencia'],
+                        })
+                    # Agregar la actual
+                    data_hist.append({
+                        'Fecha': 'Actual',
+                        '% Coincidencia': s['pct_coincidencia'],
+                    })
+                    df_hist = pd.DataFrame(data_hist)
+                    if len(df_hist) >= 2:
+                        st.line_chart(df_hist.set_index('Fecha')['% Coincidencia'])
+
+                    # Comparar con el promedio histórico
+                    prom_hist = sum(h['pct_coincidencia'] for h in historial_suc) / len(historial_suc)
+                    diff_hist = s['pct_coincidencia'] - prom_hist
+                    delta_str = f"+{diff_hist:.1f}%" if diff_hist > 0 else f"{diff_hist:.1f}%"
+                    delta_color = "green" if diff_hist >= 0 else "red"
+
+                    st.markdown(
+                        f"<p style='color: #6b7280;'>"
+                        f"Promedio histórico: <b>{prom_hist:.1f}%</b> &nbsp;·&nbsp; "
+                        f"Actual: <b>{s['pct_coincidencia']}%</b> &nbsp;·&nbsp; "
+                        f"<span style='color: {delta_color}; font-weight: 600;'>{delta_str}</span>"
+                        f"</p>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.info("📭 No hay auditorías anteriores de esta sucursal para comparar.")
+            else:
+                st.info("💡 Usá el campo **Sucursal** al ejecutar una auditoría "
+                        "para habilitar la comparativa histórica.")
 
     # ─── Exportación ───
     st.markdown("### 💾 Exportar resultados")
@@ -1359,6 +1729,17 @@ with tabs[1]:
     if not sucursales:
         st.info("📭 No hay auditorías guardadas todavía. Ejecutá una auditoría "
                 "desde la pestaña **➕ Nueva Auditoría** y se guardará automáticamente.")
+        st.markdown("### 🎲 ¿Querés probar la app?")
+        st.markdown(
+            "<p style='color: #6b7280;'>Cargá datos de ejemplo para ver "
+            "cómo funciona el panel de sucursales.</p>",
+            unsafe_allow_html=True,
+        )
+        if st.button("🎲 Cargar datos de ejemplo", use_container_width=False):
+            with st.spinner("Generando auditorías de ejemplo..."):
+                sembrar_datos_ejemplo()
+                st.cache_data.clear()
+                st.rerun()
         st.stop()
 
     # Métrica global
