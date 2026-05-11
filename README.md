@@ -83,35 +83,62 @@ cd auditoria-inventarios
 
 ## 🔧 Instalación paso a paso
 
+### Antes de empezar: ¿ya tenés Python?
+
+Abrí una terminal y ejecutá este comando para ver si ya tenés Python instalado:
+
+**Windows:**
+```cmd
+python --version
+```
+
+**macOS / Linux:**
+```bash
+python3 --version
+```
+
+**Si ves algo como** `Python 3.8.5` o superior → ya lo tenés. Saltá directo a la sección de tu sistema operativo para instalar Streamlit y ejecutar la app.
+
+**Si ves** `'python' no se reconoce como un comando` o `command not found` → tenés que instalarlo. Seguí los pasos de abajo según tu sistema.
+
+---
+
 ### Windows
 
-#### 1. Instalar Python (si no lo tenés)
+#### 1. Instalar Python
 
 1. Andá a [python.org/downloads](https://www.python.org/downloads/)
-2. Apretá el botón amarillo **Download Python**
-3. Ejecutá el instalador
-4. **IMPORTANTE:** marcá la opción **"Add Python to PATH"** (en la primera pantalla)
+2. Apretá el botón amarillo **Download Python** (se descarga solo)
+3. Ejecutá el archivo descargado (`.exe`)
+4. **⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜**
+   **☑️ IMPORTANTE: marcá "Add Python to PATH"** (en la PRIMERA pantalla)
+   **⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜**
+   Mirá bien: es un cuadrito en la PARTE DE ABAJO del instalador. Si no lo marcás, después los comandos no van a funcionar.
 5. Apretá **Install Now**
+6. Esperá a que termine y apretá **Close**
 
-#### 2. Abrir la terminal (símbolo del sistema)
+✅ **Verificá que quedó bien instalado:**
+1. Abrí una terminal nueva (apretá `Windows + R`, escribí `cmd`, Enter)
+2. Escribí `python --version`
+3. **Tiene que aparecer** `Python 3.x.x` — si ves eso, está listo.
 
-1. Apretá `Windows + R`
-2. Escribí `cmd` y apretá Enter
-3. En la ventana negra, escribí:
+#### 2. Ir a la carpeta del proyecto
+
+En la terminal (la ventana negra), escribí:
 
 ```cmd
 cd Desktop\auditoria-inventarios
 ```
 
-(Si la descomprimiste en otra carpeta, escribí esa ruta en vez de `Desktop`)
+> 📝 Si la carpeta descomprimida está en otro lugar (ej: `Descargas`), escribí esa ruta. Por ejemplo: `cd C:\Users\tuusuario\Downloads\auditoria-inventarios`
 
-#### 3. Instalar Streamlit y Pandas
+#### 3. Instalar Streamlit y Pandas (un solo paso)
 
 ```cmd
 pip install streamlit pandas
 ```
 
-Esperá a que termine (puede tardar un minuto).
+Esperá a que termine. Al final no debería mostrar errores.
 
 #### 4. Ejecutar la app
 
@@ -119,27 +146,38 @@ Esperá a que termine (puede tardar un minuto).
 python -m streamlit run auditoria_app.py
 ```
 
-Se va a abrir una ventana del navegador con la app lista para usar.
+Se va a abrir el navegador solo con la app lista para usar.
 
 ---
 
 ### macOS
 
-#### 1. Instalar Python (si no lo tenés)
+#### 1. Verificar si ya tenés Python
 
-**Opción A — Instalador oficial:**
+Abrí la Terminal (buscá "Terminal" en la lupa arriba a la derecha) y ejecutá:
+
+```bash
+python3 --version
+```
+
+- ✅ Si ves `Python 3.8.x` o superior → ya lo tenés, saltá al paso 3.
+- ❌ Si ves `command not found` → seguí con el paso 2.
+
+#### 2. Instalar Python
+
+**Opción recomendada — Instalador oficial (la más fácil):**
+
 1. Andá a [python.org/downloads](https://www.python.org/downloads/)
-2. Apretá **Download Python**
-3. Ejecutá el `.pkg` descargado y seguí los pasos
+2. Apretá **Download Python** (se descarga solo)
+3. Ejecutá el archivo `.pkg` descargado
+4. Seguí los pasos del instalador (todo siguiente-siguiente)
+5. ✅ **Verificá:** abrí una Terminal NUEVA y ejecutá `python3 --version`. Tiene que mostrar la versión.
 
-**Opción B — Con Homebrew (si lo tenés instalado):**
+**Opción alternativa — Con Homebrew (si ya lo tenés instalado):**
+
 ```bash
 brew install python@3.12
 ```
-
-#### 2. Abrir la Terminal
-
-Buscá "Terminal" en Spotlight (lupa arriba a la derecha) y abrila.
 
 #### 3. Ir a la carpeta del proyecto
 
@@ -147,9 +185,9 @@ Buscá "Terminal" en Spotlight (lupa arriba a la derecha) y abrila.
 cd ~/Desktop/auditoria-inventarios
 ```
 
-> 📝 Si lo descargaste en otra carpeta, arrastrá la carpeta a la terminal después de escribir `cd ` y se completa sola la ruta.
+> 💡 **Tip:** si moviste la carpeta a otro lado, escribí `cd ` (con espacio al final) y arrastrá la carpeta desde el Finder a la terminal — se completa la ruta sola.
 
-#### 4. Instalar Streamlit y Pandas
+#### 4. Instalar Streamlit y Pandas (un solo paso)
 
 ```bash
 pip3 install streamlit pandas
@@ -161,13 +199,13 @@ pip3 install streamlit pandas
 python3 -m streamlit run auditoria_app.py
 ```
 
-Se abre el navegador automáticamente en `http://localhost:8501`
+Se abre el navegador automáticamente en `http://localhost:8501`. La app queda corriendo mientras la uses. Cuando termines, apretá `Ctrl + C` en la terminal para cerrarla.
 
 #### 6. (Alternativa) Doble-click en el archivo .command
 
 En la carpeta del proyecto hay un archivo llamado **`Auditoria Inventarios.command`**. Hacé doble-click y se abre todo solo (sin necesidad de escribir comandos).
 
-> 💡 **Tip:** si al hacer doble-click no se abre, abrí Terminal y ejecutá:
+> 💡 **Tip:** si al hacer doble-click no se abre, abrí Terminal y ejecutá esto una sola vez:
 > ```bash
 > chmod +x "Auditoria Inventarios.command"
 > ```
@@ -177,16 +215,25 @@ En la carpeta del proyecto hay un archivo llamado **`Auditoria Inventarios.comma
 ### Linux
 
 ```bash
-# Instalar Python si no lo tenés
-sudo apt install python3 python3-pip   # Debian/Ubuntu
+# 1. Instalar Python y pip (solo si no lo tenés)
+# Debian / Ubuntu / Linux Mint
+sudo apt update
+sudo apt install python3 python3-pip -y
 
-# Ir a la carpeta
+# Fedora / CentOS / RHEL
+# sudo dnf install python3 python3-pip -y
+
+# 2. Verificar que quedó bien
+python3 --version
+# Debería mostrar: Python 3.x.x
+
+# 3. Ir a la carpeta del proyecto
 cd ~/Descargas/auditoria-inventarios
 
-# Instalar dependencias
+# 4. Instalar Streamlit y Pandas
 pip3 install streamlit pandas
 
-# Ejecutar
+# 5. Ejecutar la app
 python3 -m streamlit run auditoria_app.py
 ```
 
