@@ -3,10 +3,11 @@
 Auditoría de Inventarios — Streamlit App
 =========================================
 Compara conteo físico de sucursal vs. stock del sistema central.
-Para el analista: subí los CSVs, obtené el reporte al instante.
+Con memoria persistente: guarda cada auditoría en SQLite y permite
+consultar el historial completo en cualquier momento.
 
 Uso:
-  streamlit run auditoria_app.py
+  python3 -m streamlit run auditoria_app.py
 """
 
 import streamlit as st
@@ -14,6 +15,7 @@ import pandas as pd
 import csv
 import os
 import json
+import sqlite3
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
@@ -32,27 +34,17 @@ st.set_page_config(
 # ─── Estilo personalizado (light mode, cream bg) ───
 st.markdown("""
 <style>
-    /* Base */
-    .stApp {
-        background-color: #f7f6f3;
-    }
-    .main > div {
-        background-color: #f7f6f3;
-    }
-    /* Cards blancas */
+    .stApp { background-color: #f7f6f3; }
+    .main > div { background-color: #f7f6f3; }
     div[data-testid="stMetric"],
-    div.stAlert,
-    div.stInfo,
-    div.stSuccess,
-    div.stWarning,
-    div.stError,
+    div.stAlert, div.stInfo, div.stSuccess,
+    div.stWarning, div.stError,
     .stTabs [data-baseweb="tab-panel"] {
         background-color: #ffffff;
         border-radius: 12px;
         padding: 16px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
-    /* Métricas */
     [data-testid="stMetric"] {
         background: white;
         border-radius: 12px;
@@ -74,7 +66,6 @@ st.markdown("""
     [data-testid="stMetric"] [data-testid="stMetricDelta"] {
         font-size: 0.85rem;
     }
-    /* Botón primario */
     .stButton > button {
         background-color: #4f46e5;
         color: white;
@@ -89,7 +80,14 @@ st.markdown("""
         color: white;
         box-shadow: 0 2px 8px rgba(79,70,229,0.25);
     }
-    /* File uploader */
+    .stButton > button[data-secondary="true"] {
+        background-color: transparent;
+        color: #4f46e5;
+        border: 1px solid #d1d5db;
+    }
+    .stButton > button[data-secondary="true"]:hover {
+        border-color: #4f46e5;
+    }
     [data-testid="stFileUploader"] {
         background: white;
         border-radius: 12px;
@@ -100,42 +98,18 @@ st.markdown("""
     [data-testid="stFileUploader"]:hover {
         border-color: #4f46e5;
     }
-    /* Headers */
-    h1, h2, h3 {
-        color: #111827;
-    }
-    h1 {
-        font-size: 1.8rem;
-        font-weight: 700;
-        margin-bottom: 0.2rem;
-    }
-    h2 {
-        font-size: 1.3rem;
-        font-weight: 600;
-        margin-top: 1.5rem;
-    }
-    /* Tabs */
-    .stTabs [data-baseweb="tab"] {
-        font-weight: 500;
-        color: #6b7280;
-    }
-    .stTabs [aria-selected="true"] {
-        color: #4f46e5;
-        font-weight: 600;
-    }
-    /* DataFrame */
+    h1, h2, h3 { color: #111827; }
+    h1 { font-size: 1.8rem; font-weight: 700; margin-bottom: 0.2rem; }
+    h2 { font-size: 1.3rem; font-weight: 600; margin-top: 1.5rem; }
+    .stTabs [data-baseweb="tab"] { font-weight: 500; color: #6b7280; }
+    .stTabs [aria-selected="true"] { color: #4f46e5; font-weight: 600; }
     [data-testid="stDataFrame"] {
         background: white;
         border-radius: 12px;
         padding: 4px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
-    /* Divider */
-    hr {
-        border-color: #e2e1dd;
-        margin: 1.5rem 0;
-    }
-    /* Footer badge */
+    hr { border-color: #e2e1dd; margin: 1.5rem 0; }
     .footer-badge {
         text-align: center;
         color: #9ca3af;
@@ -144,19 +118,262 @@ st.markdown("""
         padding-top: 1rem;
         border-top: 1px solid #e2e1dd;
     }
-    /* Sidebar */
     section[data-testid="stSidebar"] {
         background-color: #faf9f7;
         border-right: 1px solid #e2e1dd;
     }
-    section[data-testid="stSidebar"] .stMarkdown {
-        color: #374151;
+    section[data-testid="stSidebar"] .stMarkdown { color: #374151; }
+    div[data-testid="stExpander"] {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        border: none;
+    }
+    .historial-card {
+        background: white;
+        border-radius: 12px;
+        padding: 16px 20px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        margin-bottom: 10px;
+        cursor: pointer;
+        transition: box-shadow 0.15s;
+        border-left: 4px solid transparent;
+    }
+    .historial-card:hover {
+        box-shadow: 0 3px 12px rgba(0,0,0,0.1);
+    }
+    .historial-card.aprobada { border-left-color: #16a34a; }
+    .historial-card.observada { border-left-color: #d97706; }
+    .historial-card.rechazada { border-left-color: #dc2626; }
+    .historial-fecha { color: #9ca3af; font-size: 0.82rem; }
+    .historial-sucursal { font-weight: 600; color: #111827; font-size: 1rem; }
+    .historial-stats { color: #6b7280; font-size: 0.85rem; }
+    .delete-btn {
+        background: none;
+        border: none;
+        color: #dc2626;
+        cursor: pointer;
+        font-size: 0.85rem;
+        padding: 4px 8px;
+        border-radius: 6px;
+    }
+    .delete-btn:hover {
+        background: #fef2f2;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-#  Lógica de auditoría (reescrita para pandas)
+#  Base de datos SQLite (memoria persistente)
+# ─────────────────────────────────────────────
+
+DB_PATH = str(Path.home() / ".auditoria_inventarios.db")
+
+
+def get_db() -> sqlite3.Connection:
+    """Devuelve conexión a la base de datos."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
+
+
+def init_db():
+    """Crea las tablas si no existen."""
+    conn = get_db()
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS auditorias (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha           TEXT NOT NULL,
+            sucursal        TEXT DEFAULT '',
+            archivo_fisico  TEXT DEFAULT '',
+            archivo_central TEXT DEFAULT '',
+            total_sku       INTEGER DEFAULT 0,
+            coinciden       INTEGER DEFAULT 0,
+            diferencias     INTEGER DEFAULT 0,
+            sobrantes       INTEGER DEFAULT 0,
+            faltantes       INTEGER DEFAULT 0,
+            solo_fisico     INTEGER DEFAULT 0,
+            solo_central    INTEGER DEFAULT 0,
+            total_unid_fis  INTEGER DEFAULT 0,
+            total_unid_cen  INTEGER DEFAULT 0,
+            diferencia_neta INTEGER DEFAULT 0,
+            pct_coincidencia REAL DEFAULT 0,
+            veredicto       TEXT DEFAULT '',
+            csv_fisico      TEXT DEFAULT '',
+            csv_central     TEXT DEFAULT ''
+        );
+
+        CREATE TABLE IF NOT EXISTS diferencias (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            audit_id        INTEGER NOT NULL,
+            sku             TEXT NOT NULL,
+            tipo            TEXT NOT NULL,
+            cantidad_fisico INTEGER DEFAULT 0,
+            cantidad_central INTEGER DEFAULT 0,
+            diferencia      INTEGER DEFAULT 0,
+            FOREIGN KEY (audit_id) REFERENCES auditorias(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_diferencias_audit
+            ON diferencias(audit_id);
+        CREATE INDEX IF NOT EXISTS idx_auditorias_fecha
+            ON auditorias(fecha DESC);
+        CREATE INDEX IF NOT EXISTS idx_auditorias_sucursal
+            ON auditorias(sucursal);
+    """)
+    conn.commit()
+    conn.close()
+
+
+def guardar_auditoria(resultado: dict, sucursal: str,
+                      archivo_f: str, archivo_c: str,
+                      csv_fisico_raw: str, csv_central_raw: str) -> int:
+    """Guarda la auditoría completa en SQLite. Devuelve el ID."""
+    s = resultado['stats']
+    conn = get_db()
+    cur = conn.execute("""
+        INSERT INTO auditorias
+            (fecha, sucursal, archivo_fisico, archivo_central,
+             total_sku, coinciden, diferencias, sobrantes, faltantes,
+             solo_fisico, solo_central,
+             total_unid_fis, total_unid_cen, diferencia_neta,
+             pct_coincidencia, veredicto,
+             csv_fisico, csv_central)
+        VALUES (?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?,
+                ?, ?, ?,
+                ?, ?,
+                ?, ?)
+    """, (
+        datetime.now().isoformat(),
+        sucursal,
+        archivo_f,
+        archivo_c,
+        s['total_sku'],
+        s['coinciden'],
+        s['diferencias'],
+        s['sobrantes'],
+        s['faltantes'],
+        s['solo_fisico'],
+        s['solo_central'],
+        s['total_fisico'],
+        s['total_central'],
+        s['diferencia_neta'],
+        s['pct_coincidencia'],
+        s['veredicto'],
+        csv_fisico_raw,
+        csv_central_raw,
+    ))
+    audit_id = cur.lastrowid
+
+    # Guardar diferencias
+    rows = []
+    t = resultado['tablas']
+    for _, row in t['faltantes'].iterrows():
+        rows.append((audit_id, row['SKU'], 'FALTANTE',
+                     int(row['Físico']), int(row['Central']), int(row['Diferencia'])))
+    for _, row in t['sobrantes'].iterrows():
+        rows.append((audit_id, row['SKU'], 'SOBRANTE',
+                     int(row['Físico']), int(row['Central']), int(row['Diferencia'])))
+    for _, row in t['solo_fisico'].iterrows():
+        rows.append((audit_id, row['SKU'], 'SOLO_FISICO',
+                     int(row['Cantidad Físico']), 0, int(row['Cantidad Físico'])))
+    for _, row in t['solo_central'].iterrows():
+        rows.append((audit_id, row['SKU'], 'SOLO_CENTRAL',
+                     0, int(row['Cantidad Central']), -int(row['Cantidad Central'])))
+    for _, row in t['coinciden'].iterrows():
+        rows.append((audit_id, row['SKU'], 'COINCIDE',
+                     int(row['Cantidad']), int(row['Cantidad']), 0))
+
+    if rows:
+        conn.executemany("""
+            INSERT INTO diferencias
+                (audit_id, sku, tipo, cantidad_fisico, cantidad_central, diferencia)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, rows)
+
+    conn.commit()
+    conn.close()
+    return audit_id
+
+
+def listar_auditorias(limit: int = 50, sucursal_filtro: str = "",
+                      veredicto_filtro: str = "") -> list:
+    """Devuelve lista de auditorías con filtros opcionales."""
+    conn = get_db()
+    query = "SELECT * FROM auditorias"
+    params = []
+    condiciones = []
+    if sucursal_filtro:
+        condiciones.append("sucursal LIKE ?")
+        params.append(f"%{sucursal_filtro}%")
+    if veredicto_filtro:
+        condiciones.append("veredicto = ?")
+        params.append(veredicto_filtro)
+    if condiciones:
+        query += " WHERE " + " AND ".join(condiciones)
+    query += " ORDER BY fecha DESC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def obtener_auditoria(audit_id: int) -> dict:
+    """Devuelve una auditoría completa con sus diferencias."""
+    conn = get_db()
+    audit = conn.execute(
+        "SELECT * FROM auditorias WHERE id = ?", (audit_id,)
+    ).fetchone()
+    if not audit:
+        conn.close()
+        return None
+    diffs = conn.execute(
+        "SELECT * FROM diferencias WHERE audit_id = ? ORDER BY tipo, sku",
+        (audit_id,)
+    ).fetchall()
+    conn.close()
+    return {
+        'auditoria': dict(audit),
+        'diferencias': [dict(d) for d in diffs],
+    }
+
+
+def eliminar_auditoria(audit_id: int):
+    """Elimina una auditoría y sus diferencias (cascade)."""
+    conn = get_db()
+    conn.execute("DELETE FROM diferencias WHERE audit_id = ?", (audit_id,))
+    conn.execute("DELETE FROM auditorias WHERE id = ?", (audit_id,))
+    conn.commit()
+    conn.close()
+
+
+def estadisticas_generales() -> dict:
+    """Devuelve estadísticas generales de todas las auditorías."""
+    conn = get_db()
+    r = conn.execute("""
+        SELECT
+            COUNT(*) as total_auditorias,
+            COALESCE(SUM(total_sku), 0) as total_sku_auditados,
+            COALESCE(SUM(diferencias), 0) as total_diferencias,
+            COALESCE(AVG(pct_coincidencia), 0) as promedio_coincidencia,
+            COUNT(CASE WHEN veredicto = 'APROBADA' THEN 1 END) as aprobadas,
+            COUNT(CASE WHEN veredicto = 'OBSERVADA' THEN 1 END) as observadas,
+            COUNT(CASE WHEN veredicto = 'RECHAZADA' THEN 1 END) as rechazadas,
+            COUNT(DISTINCT sucursal) as sucursales_distintas
+        FROM auditorias
+    """).fetchone()
+    conn.close()
+    return dict(r)
+
+
+# Inicializar base de datos al arrancar
+init_db()
+
+# ─────────────────────────────────────────────
+#  Lógica de auditoría
 # ─────────────────────────────────────────────
 
 COL_SKU_CANDIDATES = ['sku', 'codigo', 'código', 'cod', 'producto', 'id',
@@ -168,23 +385,19 @@ COL_QTY_CANDIDATES = ['cantidad', 'stock', 'existencia', 'existencias',
 
 
 def detectar_columna(df: pd.DataFrame, candidates: list[str], fallback_idx: int = 0) -> str:
-    """Busca la primera columna del df que coincida con los candidatos."""
     cols_lower = {c.lower().strip(): c for c in df.columns}
     for c in candidates:
         if c in cols_lower:
             return cols_lower[c]
-    # Fallback: usar la columna en posición fallback_idx
     return df.columns[fallback_idx]
 
 
 def parse_cantidad(val) -> int:
-    """Convierte a entero tolerando formatos argentinos."""
     if val is None:
         return 0
     v = str(val).strip()
     if not v:
         return 0
-    # Sacar puntos de miles
     v = v.replace('.', '').replace(',', '.')
     try:
         return int(float(v))
@@ -197,8 +410,6 @@ def ejecutar_auditoria(df_fisico: pd.DataFrame, df_central: pd.DataFrame,
                        sku_col_f: str, qty_col_f: str,
                        sku_col_c: str, qty_col_c: str) -> dict:
     """Ejecuta la comparación y devuelve resultados estructurados."""
-
-    # Preparar datos
     f = df_fisico[[sku_col_f, qty_col_f]].copy()
     f.columns = ['sku', 'cantidad']
     f['cantidad'] = f['cantidad'].apply(parse_cantidad)
@@ -209,7 +420,6 @@ def ejecutar_auditoria(df_fisico: pd.DataFrame, df_central: pd.DataFrame,
     c['cantidad'] = c['cantidad'].apply(parse_cantidad)
     c = c.groupby('sku', as_index=False)['cantidad'].sum()
 
-    # Indexar
     fisico_dict = dict(zip(f['sku'], f['cantidad']))
     central_dict = dict(zip(c['sku'], c['cantidad']))
 
@@ -283,7 +493,6 @@ def ejecutar_auditoria(df_fisico: pd.DataFrame, df_central: pd.DataFrame,
 
 
 def generar_reporte_txt(resultado: dict, sucursal: str = "") -> str:
-    """Genera reporte en texto plano."""
     s = resultado['stats']
     lines = []
     lines.append("=" * 64)
@@ -338,90 +547,116 @@ def generar_reporte_txt(resultado: dict, sucursal: str = "") -> str:
     return "\n".join(lines)
 
 
-def guardar_historial(resultado: dict, sucursal: str, archivo_f: str, archivo_c: str):
-    """Guarda un registro de la auditoría en un JSON acumulativo."""
-    hist_path = Path(st.session_state.get('historial_path', 'auditorias_historial.json'))
-    registro = {
-        'fecha': datetime.now().isoformat(),
-        'sucursal': sucursal,
-        'archivo_fisico': archivo_f,
-        'archivo_central': archivo_c,
-        'stats': resultado['stats'],
-    }
-    if hist_path.exists():
-        with open(hist_path, 'r', encoding='utf-8') as f:
-            historial = json.load(f)
+def reconstruir_resultado_desde_db(audit: dict, diffs: list) -> dict:
+    """Reconstruye el dict 'resultado' desde los datos de la DB para mostrar en UI."""
+    s = audit
+    pct = s['pct_coincidencia']
+    if pct >= 95:
+        icono = "✅"
+        texto = "APROBADA"
+        msg = "Sin diferencias significativas."
+    elif pct >= 80:
+        icono = "⚠️"
+        texto = "OBSERVADA"
+        msg = "Revisar diferencias detectadas."
     else:
-        historial = []
-    historial.append(registro)
-    with open(hist_path, 'w', encoding='utf-8') as f:
-        json.dump(historial, f, indent=2, ensure_ascii=False)
+        icono = "🔴"
+        texto = "RECHAZADA"
+        msg = "Requiere investigación."
+
+    stats = {
+        'total_sku': s['total_sku'],
+        'coinciden': s['coinciden'],
+        'diferencias': s['diferencias'],
+        'sobrantes': s['sobrantes'],
+        'faltantes': s['faltantes'],
+        'solo_fisico': s['solo_fisico'],
+        'solo_central': s['solo_central'],
+        'total_fisico': s['total_unid_fis'],
+        'total_central': s['total_unid_cen'],
+        'diferencia_neta': s['diferencia_neta'],
+        'pct_coincidencia': pct,
+        'veredicto_icono': icono,
+        'veredicto': texto,
+        'veredicto_msg': msg,
+    }
+
+    tablas = {
+        'coinciden': pd.DataFrame(),
+        'sobrantes': pd.DataFrame(),
+        'faltantes': pd.DataFrame(),
+        'solo_fisico': pd.DataFrame(),
+        'solo_central': pd.DataFrame(),
+    }
+
+    coic, sob, falt, sf, sc = [], [], [], [], []
+    for d in diffs:
+        t = d['tipo']
+        if t == 'COINCIDE':
+            coic.append({'SKU': d['sku'], 'Cantidad': d['cantidad_fisico']})
+        elif t == 'SOBRANTE':
+            sob.append({'SKU': d['sku'], 'Físico': d['cantidad_fisico'],
+                        'Central': d['cantidad_central'], 'Diferencia': d['diferencia']})
+        elif t == 'FALTANTE':
+            falt.append({'SKU': d['sku'], 'Físico': d['cantidad_fisico'],
+                         'Central': d['cantidad_central'], 'Diferencia': d['diferencia']})
+        elif t == 'SOLO_FISICO':
+            sf.append({'SKU': d['sku'], 'Cantidad Físico': d['cantidad_fisico']})
+        elif t == 'SOLO_CENTRAL':
+            sc.append({'SKU': d['sku'], 'Cantidad Central': d['cantidad_central']})
+
+    if coic:
+        tablas['coinciden'] = pd.DataFrame(coic)
+    if sob:
+        tablas['sobrantes'] = pd.DataFrame(sob)
+    if falt:
+        tablas['faltantes'] = pd.DataFrame(falt)
+    if sf:
+        tablas['solo_fisico'] = pd.DataFrame(sf)
+    if sc:
+        tablas['solo_central'] = pd.DataFrame(sc)
+
+    return {'stats': stats, 'tablas': tablas}
 
 
 # ─────────────────────────────────────────────
-#  UI
+#  Generar CSVs de ejemplo
 # ─────────────────────────────────────────────
-
-st.markdown(
-    "<h1 style='display: flex; align-items: center; gap: 10px;'>"
-    "📦 Auditoría de Inventarios</h1>",
-    unsafe_allow_html=True,
-)
-st.markdown(
-    "<p style='color: #6b7280; margin-top: -4px;'>"
-    "Compará el conteo <b>físico</b> de una sucursal contra el <b>stock del sistema central</b>.</p>",
-    unsafe_allow_html=True,
-)
-
-# ─── Generar CSVs de ejemplo ───
 
 @st.cache_data
 def generar_ejemplo_fisico() -> str:
-    """Genera un CSV de ejemplo para conteo físico."""
-    import pandas as pd
     data = {
         'sku': ['LAP-001', 'LAP-002', 'MON-001', 'TEC-001', 'TEC-002',
                 'MOU-001', 'MOU-002', 'AUD-001', 'WEB-001', 'WEB-002',
                 'CAB-001', 'DIS-001'],
-        'cantidad': [5, 3, 12, 20, 15,
-                     8, 6, 10, 4, 7,
-                     3, 9],
+        'cantidad': [5, 3, 12, 20, 15, 8, 6, 10, 4, 7, 3, 9],
     }
     return pd.DataFrame(data).to_csv(index=False)
 
 
 @st.cache_data
 def generar_ejemplo_central() -> str:
-    """Genera un CSV de ejemplo para stock central (con diferencias)."""
     data = {
         'sku': ['LAP-001', 'LAP-002', 'MON-001', 'TEC-001', 'TEC-002',
                 'MOU-001', 'MOU-002', 'AUD-001', 'WEB-001', 'WEB-002',
                 'CAB-001', 'CAB-002', 'DIS-001', 'DIS-002'],
-        'cantidad': [5, 5, 12, 18, 15,
-                     8, 4, 12, 4, 10,
-                     3, 6, 10, 4],
+        'cantidad': [5, 5, 12, 18, 15, 8, 4, 12, 4, 10, 3, 6, 10, 4],
     }
     return pd.DataFrame(data).to_csv(index=False)
 
 
-# ─── Sidebar: instrucciones + ejemplos ───
+# ─────────────────────────────────────────────
+#  Sidebar
+# ─────────────────────────────────────────────
+
 with st.sidebar:
     st.markdown("### 🧾 ¿Cómo funciona?")
     st.markdown("""
 1. **Subí los dos archivos CSV** — el conteo físico de la sucursal y el stock del sistema central.
 2. **Confirmá las columnas** — SKU y cantidad se detectan solas, pero podés cambiarlas.
 3. **Ejecutá la auditoría** — al instante ves el resultado.
-4. **Descargá el reporte** — en texto plano o CSV con las diferencias.
-
----
-**Formato esperado:**
-
-Los CSVs deben tener al menos:
-- Una columna con el **código SKU** del producto
-- Una columna con la **cantidad**
-
-Soportamos formatos argentinos (puntos de miles).
-""")
+4. **Consultá el historial** — todas las auditorías quedan guardadas.
+    """)
 
     st.markdown("---")
     st.markdown("### 📥 Descargar ejemplos")
@@ -451,44 +686,116 @@ Soportamos formatos argentinos (puntos de miles).
 
     st.markdown(
         "<p style='color: #9ca3af; font-size: 0.78rem;'>"
-        "Los ejemplos ya tienen diferencias preparadas para que veas "
-        "cómo funciona la auditoría.</p>",
+        "Los ejemplos ya tienen diferencias preparadas.</p>",
         unsafe_allow_html=True,
     )
 
     st.markdown("---")
+
+    # Estadísticas generales
+    est = estadisticas_generales()
+    if est['total_auditorias'] > 0:
+        st.markdown("### 📊 Estadísticas generales")
+        st.markdown(
+            f"<p style='color: #6b7280; font-size: 0.85rem;'>"
+            f"Auditorías: <b>{est['total_auditorias']}</b> &nbsp;·&nbsp; "
+            f"SKU auditados: <b>{est['total_sku_auditados']:,}</b><br>"
+            f"✅ {est['aprobadas']} · ⚠️ {est['observadas']} · 🔴 {est['rechazadas']}<br>"
+            f"Promedio: <b>{est['promedio_coincidencia']:.1f}%</b></p>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("---")
+
     st.markdown(
         "<p style='color: #9ca3af; font-size: 0.8rem;'>"
-        "v1.0 — Agente de Auditoría</p>",
+        "v2.0 — Con memoria SQLite</p>",
         unsafe_allow_html=True,
     )
 
-# ─── Uploaders ───
-col1, col2 = st.columns(2)
+# ─────────────────────────────────────────────
+#  Navegación principal
+# ─────────────────────────────────────────────
 
-with col1:
-    fisico_file = st.file_uploader(
-        "📋 **Conteo FÍSICO**",
-        type=['csv', 'txt'],
-        help="CSV con el conteo real de la sucursal (SKU + cantidad)",
-    )
+# Inicializar session state
+if 'pagina' not in st.session_state:
+    st.session_state.pagina = 'nueva'
+if 'audit_id_ver' not in st.session_state:
+    st.session_state.audit_id_ver = None
 
-with col2:
-    central_file = st.file_uploader(
-        "💻 **Stock CENTRAL**",
-        type=['csv', 'txt'],
-        help="CSV con el stock del sistema central (SKU + cantidad)",
-    )
+# Título
+st.markdown(
+    "<h1 style='display: flex; align-items: center; gap: 10px;'>"
+    "📦 Auditoría de Inventarios</h1>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    "<p style='color: #6b7280; margin-top: -4px;'>"
+    "Compará el conteo <b>físico</b> contra el <b>stock central</b>.</p>",
+    unsafe_allow_html=True,
+)
 
-# ─── Sesión para mantener sucursal ───
-if 'sucursal' not in st.session_state:
-    st.session_state.sucursal = ""
-if 'historial_path' not in st.session_state:
-    st.session_state.historial_path = str(Path.home() / ".auditoria_inventarios_historial.json")
+# ─── Pestañas de navegación ───
+tabs = st.tabs(["➕ Nueva Auditoría", "📋 Historial"])
 
-# ─── Procesar si hay ambos archivos ───
-if fisico_file is not None and central_file is not None:
-    # Leer CSVs
+# ─────────────────────────────────────────────
+#  TAB 1: Nueva Auditoría
+# ─────────────────────────────────────────────
+
+with tabs[0]:
+    # Uploaders
+    col1, col2 = st.columns(2)
+    with col1:
+        fisico_file = st.file_uploader(
+            "📋 **Conteo FÍSICO**",
+            type=['csv', 'txt'],
+            key="fisico_uploader",
+            help="CSV con el conteo real de la sucursal (SKU + cantidad)",
+        )
+    with col2:
+        central_file = st.file_uploader(
+            "💻 **Stock CENTRAL**",
+            type=['csv', 'txt'],
+            key="central_uploader",
+            help="CSV con el stock del sistema central (SKU + cantidad)",
+        )
+
+    # Estado sin archivos
+    if fisico_file is None or central_file is None:
+        st.markdown("")
+        st.info(
+            "👆 Subí los dos archivos CSV para comenzar la auditoría.\n\n"
+            "**Formato:** cada archivo debe tener al menos una columna de SKU "
+            "y una columna de cantidad. El sistema detecta las columnas "
+            "automáticamente."
+        )
+
+        # Botones de ejemplo en pantalla principal
+        st.markdown("### 📥 ¿No tenés archivos a mano?")
+        st.markdown(
+            "<p style='color: #6b7280;'>"
+            "Descargá estos archivos de ejemplo y probá la app:</p>",
+            unsafe_allow_html=True,
+        )
+        col_ej1, col_ej2 = st.columns([1, 1])
+        with col_ej1:
+            st.download_button(
+                "📋 Descargar ejemplo — Conteo FÍSICO",
+                data=generar_ejemplo_fisico(),
+                file_name="ejemplo_conteo_fisico.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        with col_ej2:
+            st.download_button(
+                "💻 Descargar ejemplo — Stock CENTRAL",
+                data=generar_ejemplo_central(),
+                file_name="ejemplo_stock_central.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        st.stop()
+
+    # ─── Procesar archivos ───
     try:
         df_fisico = pd.read_csv(fisico_file, dtype=str)
         df_central = pd.read_csv(central_file, dtype=str)
@@ -496,7 +803,6 @@ if fisico_file is not None and central_file is not None:
         st.error(f"❌ Error al leer los CSVs: {e}")
         st.stop()
 
-    # Validar que no estén vacíos
     if df_fisico.empty:
         st.error("❌ El archivo de conteo físico está vacío.")
         st.stop()
@@ -504,32 +810,29 @@ if fisico_file is not None and central_file is not None:
         st.error("❌ El archivo de stock central está vacío.")
         st.stop()
 
-    # ─── Detectar columnas ───
+    # Detectar columnas
     sku_col_f = detectar_columna(df_fisico, COL_SKU_CANDIDATES)
     qty_col_f = detectar_columna(df_fisico, COL_QTY_CANDIDATES, fallback_idx=1)
     sku_col_c = detectar_columna(df_central, COL_SKU_CANDIDATES)
     qty_col_c = detectar_columna(df_central, COL_QTY_CANDIDATES, fallback_idx=1)
 
-    # ─── Preview + configuración de columnas ───
+    # Preview
     st.markdown("---")
     st.markdown("### 📋 Vistazo de los datos")
 
     tab1, tab2 = st.tabs(["📋 Conteo Físico", "💻 Stock Central"])
-
     with tab1:
         st.dataframe(df_fisico.head(10), use_container_width=True, hide_index=True)
         st.caption(f"{len(df_fisico)} filas • Columnas: {', '.join(df_fisico.columns)}")
-
     with tab2:
         st.dataframe(df_central.head(10), use_container_width=True, hide_index=True)
         st.caption(f"{len(df_central)} filas • Columnas: {', '.join(df_central.columns)}")
 
-    # ─── Columna mapping ───
+    # Columnas mapping
     st.markdown("### ⚙️ Columnas para la comparación")
     st.caption("Si la detección automática no es correcta, ajustalas manualmente.")
 
     col_a, col_b, col_c, col_d = st.columns(4)
-
     with col_a:
         sku_f = st.selectbox("SKU (físico)", df_fisico.columns,
                               index=list(df_fisico.columns).index(sku_col_f))
@@ -543,12 +846,12 @@ if fisico_file is not None and central_file is not None:
         qty_c = st.selectbox("Cantidad (central)", df_central.columns,
                               index=list(df_central.columns).index(qty_col_c))
 
-    # ─── Sucursal ───
+    # Sucursal
     st.markdown("### 🏪 Sucursal")
-    sucursal = st.text_input("Nombre de la sucursal (opcional, para el reporte)",
-                              value=st.session_state.sucursal,
-                              placeholder="Ej: Sucursal Centro")
-    st.session_state.sucursal = sucursal
+    sucursal = st.text_input(
+        "Nombre de la sucursal (opcional, para el reporte)",
+        placeholder="Ej: Sucursal Centro",
+    )
 
     # ─── Botón ejecutar ───
     st.markdown("---")
@@ -556,225 +859,311 @@ if fisico_file is not None and central_file is not None:
     with col_btn:
         ejecutar = st.button("▶️  Ejecutar Auditoría", type="primary", use_container_width=True)
 
-    if ejecutar:
-        resultado = ejecutar_auditoria(
-            df_fisico, df_central,
-            sku_f, qty_f, sku_c, qty_c
+    if not ejecutar:
+        st.stop()
+
+    # ─── Ejecutar y guardar ───
+    resultado = ejecutar_auditoria(
+        df_fisico, df_central,
+        sku_f, qty_f, sku_c, qty_c
+    )
+
+    s = resultado['stats']
+
+    # Guardar en SQLite
+    csv_fisico_raw = df_fisico.to_csv(index=False)
+    csv_central_raw = df_central.to_csv(index=False)
+
+    audit_id = guardar_auditoria(
+        resultado, sucursal,
+        fisico_file.name, central_file.name,
+        csv_fisico_raw, csv_central_raw,
+    )
+
+    # Limpiar caché para que el historial se refresque
+    st.cache_data.clear()
+
+    # ─── VEREDICTO ───
+    ver_color = {"APROBADA": "green", "OBSERVADA": "orange", "RECHAZADA": "red"}
+    vcolor = ver_color.get(s['veredicto'], "gray")
+    st.markdown(f"""
+    <div style="background: white; border-radius: 12px; padding: 20px;
+                border-left: 5px solid {vcolor};
+                box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 20px;">
+        <span style="font-size: 1.5rem;">{s['veredicto_icono']}</span>
+        <span style="font-size: 1.3rem; font-weight: 700; color: {vcolor};">
+            {s['veredicto']}
+        </span>
+        <span style="color: #6b7280; margin-left: 8px;">— {s['veredicto_msg']}</span>
+        <span style="float: right; color: #9ca3af; font-size: 0.85rem;">
+            ID #{audit_id} · Guardado
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ─── Métricas principales ───
+    st.markdown("### 📊 Resumen")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("SKU Analizados", s['total_sku'])
+    m2.metric("Coinciden", f"{s['coinciden']} ({s['pct_coincidencia']}%)")
+    m3.metric("Con Diferencias", s['diferencias'],
+              delta=f"+{s['sobrantes']} sobr / -{s['faltantes']} falt")
+    m4.metric("Diferencia Neta (uds)", s['diferencia_neta'])
+
+    m5, m6, m7, m8 = st.columns(4)
+    m5.metric("Total Unid. Físico", f"{s['total_fisico']:,}")
+    m6.metric("Total Unid. Central", f"{s['total_central']:,}")
+    m7.metric("Solo en Físico", s['solo_fisico'])
+    m8.metric("Solo en Central", s['solo_central'])
+
+    # ─── Tablas de detalle ───
+    tabs_res = resultado['tablas']
+
+    if not tabs_res['faltantes'].empty:
+        st.markdown("### 🔴 Faltantes (stock central > conteo físico)")
+        st.dataframe(
+            tabs_res['faltantes'].style.applymap(
+                lambda _: 'color: #dc2626; font-weight: 600;',
+                subset=['Diferencia'],
+            ),
+            use_container_width=True, hide_index=True,
         )
 
-        s = resultado['stats']
+    if not tabs_res['sobrantes'].empty:
+        st.markdown("### 🟡 Sobrantes (conteo físico > stock central)")
+        st.dataframe(
+            tabs_res['sobrantes'].style.applymap(
+                lambda _: 'color: #d97706; font-weight: 600;',
+                subset=['Diferencia'],
+            ),
+            use_container_width=True, hide_index=True,
+        )
 
-        # Guardar historial
-        guardar_historial(resultado, sucursal, fisico_file.name, central_file.name)
+    if not tabs_res['solo_fisico'].empty:
+        st.markdown("### ❓ En físico, no registrados en central")
+        st.dataframe(tabs_res['solo_fisico'], use_container_width=True, hide_index=True)
 
-        # ─── VEREDICTO ───
-        ver_color = {"APROBADA": "green", "OBSERVADA": "orange", "RECHAZADA": "red"}
-        vcolor = ver_color.get(s['veredicto'], "gray")
-        st.markdown(f"""
-        <div style="background: white; border-radius: 12px; padding: 20px;
-                    border-left: 5px solid {vcolor};
-                    box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 20px;">
-            <span style="font-size: 1.5rem;">{s['veredicto_icono']}</span>
-            <span style="font-size: 1.3rem; font-weight: 700; color: {vcolor};">
-                {s['veredicto']}
-            </span>
-            <span style="color: #6b7280; margin-left: 8px;">— {s['veredicto_msg']}</span>
-        </div>
-        """, unsafe_allow_html=True)
+    if not tabs_res['solo_central'].empty:
+        st.markdown("### ❓ En central, no registrados en físico")
+        st.dataframe(tabs_res['solo_central'], use_container_width=True, hide_index=True)
 
-        # ─── Métricas principales ───
-        st.markdown("### 📊 Resumen")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("SKU Analizados", s['total_sku'])
-        m2.metric("Coinciden", f"{s['coinciden']} ({s['pct_coincidencia']}%)")
-        m3.metric("Con Diferencias", s['diferencias'],
-                  delta=f"+{s['sobrantes']} sobr / -{s['faltantes']} falt")
-        m4.metric("Diferencia Neta (uds)", s['diferencia_neta'])
+    if not tabs_res['coinciden'].empty:
+        with st.expander(f"✅ Productos que coinciden ({len(tabs_res['coinciden'])})"):
+            st.dataframe(tabs_res['coinciden'], use_container_width=True, hide_index=True)
 
-        m5, m6, m7, m8 = st.columns(4)
-        m5.metric("Total Unid. Físico", f"{s['total_fisico']:,}")
-        m6.metric("Total Unid. Central", f"{s['total_central']:,}")
-        m7.metric("Solo en Físico", s['solo_fisico'])
-        m8.metric("Solo en Central", s['solo_central'])
+    # ─── Exportación ───
+    st.markdown("### 💾 Exportar resultados")
 
-        # ─── Tablas de detalle ───
-        tabs = resultado['tablas']
+    reporte_txt = generar_reporte_txt(resultado, sucursal)
 
-        if not tabs['faltantes'].empty:
-            st.markdown("### 🔴 Faltantes (stock central > conteo físico)")
-            st.dataframe(
-                tabs['faltantes'].style.applymap(
-                    lambda _: 'color: #dc2626; font-weight: 600;',
-                    subset=['Diferencia'],
-                ),
-                use_container_width=True, hide_index=True,
-            )
+    base_name = f"auditoria_{sucursal or 'sucursal'}_{datetime.now():%Y%m%d_%H%M%S}"
 
-        if not tabs['sobrantes'].empty:
-            st.markdown("### 🟡 Sobrantes (conteo físico > stock central)")
-            st.dataframe(
-                tabs['sobrantes'].style.applymap(
-                    lambda _: 'color: #d97706; font-weight: 600;',
-                    subset=['Diferencia'],
-                ),
-                use_container_width=True, hide_index=True,
-            )
-
-        if not tabs['solo_fisico'].empty:
-            st.markdown("### ❓ En físico, no registrados en central")
-            st.dataframe(tabs['solo_fisico'], use_container_width=True, hide_index=True)
-
-        if not tabs['solo_central'].empty:
-            st.markdown("### ❓ En central, no registrados en físico")
-            st.dataframe(tabs['solo_central'], use_container_width=True, hide_index=True)
-
-        if not tabs['coinciden'].empty:
-            with st.expander(f"✅ Productos que coinciden ({len(tabs['coinciden'])})"):
-                st.dataframe(tabs['coinciden'], use_container_width=True, hide_index=True)
-
-        # ─── Exportación ───
-        st.markdown("### 💾 Exportar resultados")
-
-        reporte_txt = generar_reporte_txt(resultado, sucursal)
-
-        # Generar CSV de diferencias
-        diffs_rows = []
-        for _, row in tabs['faltantes'].iterrows():
-            diffs_rows.append({**row.to_dict(), 'Tipo': 'FALTANTE'})
-        for _, row in tabs['sobrantes'].iterrows():
-            diffs_rows.append({**row.to_dict(), 'Tipo': 'SOBRANTE'})
-        for _, row in tabs['solo_fisico'].iterrows():
-            diffs_rows.append({'SKU': row['SKU'], 'Físico': row['Cantidad Físico'],
-                               'Central': 0, 'Diferencia': row['Cantidad Físico'],
-                               'Tipo': 'SOLO_FISICO'})
-        for _, row in tabs['solo_central'].iterrows():
-            diffs_rows.append({'SKU': row['SKU'], 'Físico': 0,
-                               'Central': row['Cantidad Central'],
-                               'Diferencia': -row['Cantidad Central'],
-                               'Tipo': 'SOLO_CENTRAL'})
-
-        df_difs = pd.DataFrame(diffs_rows) if diffs_rows else pd.DataFrame()
-        csv_difs = df_difs.to_csv(index=False) if not df_difs.empty else ""
-
-        base_name = f"auditoria_{sucursal or 'sucursal'}_{datetime.now():%Y%m%d_%H%M%S}"
-
-        col_d1, col_d2, col_d3 = st.columns(3)
-        with col_d1:
+    col_d1, col_d2, col_d3 = st.columns(3)
+    with col_d1:
+        st.download_button(
+            "📄 Descargar Reporte (.txt)",
+            data=reporte_txt,
+            file_name=f"{base_name}.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+    with col_d2:
+        df_difs_export = pd.concat([
+            tabs_res['coinciden'].assign(Tipo='COINCIDE') if not tabs_res['coinciden'].empty else pd.DataFrame(),
+            tabs_res['faltantes'].assign(Tipo='FALTANTE') if not tabs_res['faltantes'].empty else pd.DataFrame(),
+            tabs_res['sobrantes'].assign(Tipo='SOBRANTE') if not tabs_res['sobrantes'].empty else pd.DataFrame(),
+            tabs_res['solo_fisico'].assign(Tipo='SOLO_FISICO') if not tabs_res['solo_fisico'].empty else pd.DataFrame(),
+            tabs_res['solo_central'].assign(Tipo='SOLO_CENTRAL') if not tabs_res['solo_central'].empty else pd.DataFrame(),
+        ], ignore_index=True)
+        if not df_difs_export.empty:
             st.download_button(
-                "📄 Descargar Reporte (.txt)",
-                data=reporte_txt,
-                file_name=f"{base_name}.txt",
-                mime="text/plain",
-                use_container_width=True,
-            )
-        with col_d2:
-            if csv_difs:
-                st.download_button(
-                    "📊 Descargar Diferencias (.csv)",
-                    data=csv_difs,
-                    file_name=f"{base_name}_diferencias.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
-        with col_d3:
-            st.download_button(
-                "📋 Descargar Datos completos (.csv)",
-                data=pd.concat([
-                    tabs['coinciden'].assign(Tipo='COINCIDE') if not tabs['coinciden'].empty else pd.DataFrame(),
-                    tabs['faltantes'].assign(Tipo='FALTANTE') if not tabs['faltantes'].empty else pd.DataFrame(),
-                    tabs['sobrantes'].assign(Tipo='SOBRANTE') if not tabs['sobrantes'].empty else pd.DataFrame(),
-                    tabs['solo_fisico'].assign(Tipo='SOLO_FISICO') if not tabs['solo_fisico'].empty else pd.DataFrame(),
-                    tabs['solo_central'].assign(Tipo='SOLO_CENTRAL') if not tabs['solo_central'].empty else pd.DataFrame(),
-                ], ignore_index=True).to_csv(index=False),
+                "📋 Descargar Datos (.csv)",
+                data=df_difs_export.to_csv(index=False),
                 file_name=f"{base_name}_completo.csv",
                 mime="text/csv",
                 use_container_width=True,
             )
 
-        # ─── Nota final ───
-        st.markdown("")
-        if s['veredicto'] in ("APROBADA",):
-            st.success(
-                "✅ No se detectaron diferencias que requieran acción. "
-                "Podés firmar el reporte y archivar."
-            )
-        elif s['veredicto'] == "OBSERVADA":
-            st.warning(
-                "⚠️ Revisá las diferencias marcadas. Si corresponden a errores "
-                "de carga o movimientos no registrados, ajustá el stock central."
-            )
-        else:
-            st.error(
-                "🔴 Se detectaron diferencias significativas. Se recomienda "
-                "realizar un recuento físico de los productos conflictivos "
-                "antes de ajustar el sistema."
-            )
+    # ─── Nota final ───
+    if s['veredicto'] == "APROBADA":
+        st.success("✅ No se detectaron diferencias que requieran acción. "
+                    "Podés firmar el reporte y archivar.")
+    elif s['veredicto'] == "OBSERVADA":
+        st.warning("⚠️ Revisá las diferencias marcadas. Si corresponden a errores "
+                    "de carga o movimientos no registrados, ajustá el stock central.")
+    else:
+        st.error("🔴 Se detectaron diferencias significativas. Se recomienda "
+                  "realizar un recuento físico de los productos conflictivos "
+                  "antes de ajustar el sistema.")
 
-else:
-    # ─── Estado inicial (sin archivos) ───
-    st.markdown("")
-    st.info(
-        "👆 Subí los dos archivos CSV para comenzar la auditoría.\n\n"
-        "**Formato:** cada archivo debe tener al menos una columna de SKU "
-        "y una columna de cantidad. El sistema detecta las columnas "
-        "automáticamente."
-    )
+    st.info(f"💾 Auditoría guardada con ID **#{audit_id}**. Podés consultarla "
+            "desde la pestaña **📋 Historial** en cualquier momento.")
 
-    # ─── Botones de ejemplo en la pantalla principal ───
-    st.markdown("### 📥 ¿No tenés archivos a mano?")
-    st.markdown(
-        "<p style='color: #6b7280;'>"
-        "Descargá estos archivos de ejemplo y probá la app:</p>",
-        unsafe_allow_html=True,
-    )
+# ─────────────────────────────────────────────
+#  TAB 2: Historial
+# ─────────────────────────────────────────────
 
-    col_ej1, col_ej2, col_ej3 = st.columns([1, 1, 2])
-    with col_ej1:
+with tabs[1]:
+    # ─── Ver auditoría específica ───
+    if st.session_state.get('audit_id_ver'):
+        audit_id_ver = st.session_state.audit_id_ver
+        data = obtener_auditoria(audit_id_ver)
+        if data is None:
+            st.error("❌ Auditoría no encontrada. Puede haber sido eliminada.")
+            st.session_state.audit_id_ver = None
+            st.rerun()
+
+        a = data['auditoria']
+        diffs = data['diferencias']
+        resultado_hist = reconstruir_resultado_desde_db(a, diffs)
+        s_hist = resultado_hist['stats']
+        tabs_hist = resultado_hist['tablas']
+
+        # Botón volver
+        if st.button("← Volver al historial", use_container_width=False):
+            st.session_state.audit_id_ver = None
+            st.rerun()
+
+        st.markdown("---")
+
+        # Veredicto
+        ver_color = {"APROBADA": "green", "OBSERVADA": "orange", "RECHAZADA": "red"}
+        vcolor = ver_color.get(s_hist['veredicto'], "gray")
+        st.markdown(f"""
+        <div style="background: white; border-radius: 12px; padding: 20px;
+                    border-left: 5px solid {vcolor};
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 20px;">
+            <span style="font-size: 1.5rem;">{s_hist['veredicto_icono']}</span>
+            <span style="font-size: 1.3rem; font-weight: 700; color: {vcolor};">
+                {s_hist['veredicto']}
+            </span>
+            <span style="color: #6b7280; margin-left: 8px;">— {s_hist['veredicto_msg']}</span>
+            <div style="margin-top: 6px; color: #6b7280; font-size: 0.9rem;">
+                🏪 {a['sucursal'] or 'Sin sucursal'} &nbsp;·&nbsp;
+                🕐 {datetime.fromisoformat(a['fecha']).strftime('%d/%m/%Y %H:%M')} &nbsp;·&nbsp;
+                📁 {a['archivo_fisico']} / {a['archivo_central']}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Métricas
+        st.markdown("### 📊 Resumen")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("SKU Analizados", s_hist['total_sku'])
+        m2.metric("Coinciden", f"{s_hist['coinciden']} ({s_hist['pct_coincidencia']}%)")
+        m3.metric("Con Diferencias", s_hist['diferencias'])
+        m4.metric("Diferencia Neta", s_hist['diferencia_neta'])
+
+        # Tablas
+        if not tabs_hist['faltantes'].empty:
+            st.markdown("### 🔴 Faltantes")
+            st.dataframe(tabs_hist['faltantes'], use_container_width=True, hide_index=True)
+        if not tabs_hist['sobrantes'].empty:
+            st.markdown("### 🟡 Sobrantes")
+            st.dataframe(tabs_hist['sobrantes'], use_container_width=True, hide_index=True)
+        if not tabs_hist['solo_fisico'].empty:
+            st.markdown("### ❓ Solo en físico")
+            st.dataframe(tabs_hist['solo_fisico'], use_container_width=True, hide_index=True)
+        if not tabs_hist['solo_central'].empty:
+            st.markdown("### ❓ Solo en central")
+            st.dataframe(tabs_hist['solo_central'], use_container_width=True, hide_index=True)
+        if not tabs_hist['coinciden'].empty:
+            with st.expander(f"✅ Coinciden ({len(tabs_hist['coinciden'])})"):
+                st.dataframe(tabs_hist['coinciden'], use_container_width=True, hide_index=True)
+
+        # Exportar reporte desde historial
+        st.markdown("### 💾 Exportar")
+        reporte_hist = generar_reporte_txt(resultado_hist, a['sucursal'])
         st.download_button(
-            "📋 Descargar ejemplo — Conteo FÍSICO",
-            data=generar_ejemplo_fisico(),
-            file_name="ejemplo_conteo_fisico.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
-    with col_ej2:
-        st.download_button(
-            "💻 Descargar ejemplo — Stock CENTRAL",
-            data=generar_ejemplo_central(),
-            file_name="ejemplo_stock_central.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
-    with col_ej3:
-        st.markdown(
-            "<p style='color: #9ca3af; font-size: 0.85rem; padding-top: 6px;'>"
-            "Los ejemplos ya incluyen diferencias preparadas "
-            "para que veas cómo funciona la auditoría.</p>",
-            unsafe_allow_html=True,
+            "📄 Descargar Reporte (.txt)",
+            data=reporte_hist,
+            file_name=f"auditoria_#{audit_id_ver}_{a['sucursal'] or 'sucursal'}_{a['fecha'][:10]}.txt",
+            mime="text/plain",
+            use_container_width=False,
         )
 
-    # ─── Últimas auditorías ───
-    hist_path = Path(st.session_state.historial_path)
-    if hist_path.exists():
-        try:
-            with open(hist_path, 'r') as f:
-                historial = json.load(f)
-            if historial:
-                st.markdown("---")
-                st.markdown("### 🕐 Últimas auditorías realizadas")
-                for h in reversed(historial[-5:]):
-                    s = h['stats']
-                    st.markdown(
-                        f"**{s['veredicto_icono']} {h.get('sucursal', '—')}** "
-                        f"— {s['coinciden']}/{s['total_sku']} OK ({s['pct_coincidencia']}%) "
-                        f"· {h['fecha'][:10]}"
-                    )
-        except Exception:
-            pass
+        # Opción eliminar
+        st.markdown("---")
+        with st.expander("🗑️ Eliminar esta auditoría"):
+            st.warning("⚠️ Esta acción no se puede deshacer.")
+            col_del1, _ = st.columns([1, 3])
+            with col_del1:
+                if st.button("🗑️ Eliminar auditoría", use_container_width=True):
+                    eliminar_auditoria(audit_id_ver)
+                    st.success(f"✅ Auditoría #{audit_id_ver} eliminada.")
+                    st.session_state.audit_id_ver = None
+                    st.cache_data.clear()
+                    st.rerun()
+
+        st.stop()
+
+    # ─── Listado de historial ───
+    st.markdown("### 📋 Auditorías guardadas")
+
+    # Filtros
+    col_f1, col_f2, col_f3 = st.columns([2, 2, 1])
+    with col_f1:
+        filtro_sucursal = st.text_input("🔍 Filtrar por sucursal", placeholder="Buscar...")
+    with col_f2:
+        filtro_veredicto = st.selectbox(
+            "Filtrar por resultado",
+            ["Todas", "APROBADA", "OBSERVADA", "RECHAZADA"],
+        )
+    with col_f3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔄 Refrescar", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+
+    # Obtener lista
+    vf = "" if filtro_veredicto == "Todas" else filtro_veredicto
+    auditorias = listar_auditorias(limit=100, sucursal_filtro=filtro_sucursal, veredicto_filtro=vf)
+
+    if not auditorias:
+        st.info("📭 No hay auditorías guardadas todavía. Ejecutá una auditoría "
+                "desde la pestaña **➕ Nueva Auditoría** y se guardará automáticamente.")
+        st.stop()
+
+    # Mostrar cada auditoría como una tarjeta
+    for a in auditorias:
+        ver_color = {"APROBADA": "aprobada", "OBSERVADA": "observada", "RECHAZADA": "rechazada"}
+        css_class = ver_color.get(a['veredicto'], "")
+        icono = "✅" if a['veredicto'] == "APROBADA" else "⚠️" if a['veredicto'] == "OBSERVADA" else "🔴"
+
+        fecha = datetime.fromisoformat(a['fecha']).strftime('%d/%m/%Y %H:%M')
+
+        col_a1, col_a2, col_a3 = st.columns([5, 1, 1])
+
+        with col_a1:
+            st.markdown(f"""
+            <div class="historial-card {css_class}"
+                 onclick="document.querySelector('[data-testid=\\'column\\']')">
+                <div class="historial-sucursal">{icono} {a['sucursal'] or 'Sin sucursal'}</div>
+                <div class="historial-fecha">{fecha} · ID #{a['id']}</div>
+                <div class="historial-stats">
+                    {a['coinciden']}/{a['total_sku']} OK ({a['pct_coincidencia']}%) ·
+                    Falt: {a['faltantes']} · Sobr: {a['sobrantes']} ·
+                    Archivos: {a['archivo_fisico']} / {a['archivo_central']}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with col_a2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("👁️ Ver", key=f"ver_{a['id']}", use_container_width=True):
+                st.session_state.audit_id_ver = a['id']
+                st.rerun()
+
+        with col_a3:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🗑️", key=f"del_{a['id']}", use_container_width=True):
+                eliminar_auditoria(a['id'])
+                st.cache_data.clear()
+                st.rerun()
 
 # ─── Footer ───
 st.markdown(
     '<div class="footer-badge">'
-    'Agente de Auditoría de Inventarios · Hecho con Streamlit</div>',
+    'Agente de Auditoría de Inventarios v2.0 · Datos guardados en SQLite</div>',
     unsafe_allow_html=True,
 )

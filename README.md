@@ -8,7 +8,7 @@
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.50+-red?logo=streamlit&logoColor=white)
 ![License](https://img.shields.io/badge/Licencia-MIT-green)
 
-</div>
+Hecho con Python + Streamlit. **Con memoria persistente**: todas las auditorías se guardan automáticamente y podés consultarlas cuando quieras.
 
 ---
 
@@ -22,6 +22,9 @@
   - [macOS](#macos)
   - [Linux](#linux)
 - [Cómo usar la app](#-cómo-usar-la-app)
+  - [Nueva auditoría](#-nueva-auditoría)
+  - [Historial](#-historial-de-auditorías)
+  - [Ver una auditoría guardada](#-ver-una-auditoría-guardada)
 - [Entender los resultados](#-entender-los-resultados)
 - [Formato de los archivos CSV](#-formato-de-los-archivos-csv)
 - [Ejemplo completo](#-ejemplo-completo)
@@ -296,11 +299,62 @@ SKU (central)   ┌──────────┐   Cantidad (central) ┌─
 
 #### 4️⃣ Nombrar la sucursal (opcional)
 
-Escribí el nombre de la sucursal que estás auditando. Aparecerá en el reporte.
+Escribí el nombre de la sucursal que estás auditando. Aparecerá en el reporte y en el historial para que después puedas encontrar esta auditoría fácilmente.
 
 #### 5️⃣ Ejecutar la auditoría
 
 Apretá el botón **▶️ Ejecutar Auditoría**. En segundos ves los resultados.
+
+> 💾 **La auditoría se guarda automáticamente** con todos los datos. Podés cerrar la app, volver a abrirla después y consultar esta auditoría desde el **historial**.
+
+---
+
+### 📋 Historial de auditorías
+
+Todas las auditorías que ejecutes quedan guardadas automáticamente en una base de datos. Para consultarlas:
+
+1. Andá a la pestaña **📋 Historial** (arriba a la izquierda)
+2. Usá los filtros para buscar por **sucursal** o por **resultado** (Aprobada/Observada/Rechazada)
+3. Cada auditoría se muestra como una tarjeta con su resultado y fecha
+
+```
+┌──────────────────────────────────────────────────┐
+│  📋 Auditorías guardadas                         │
+│                                                   │
+│  🔍 Filtrar por sucursal: [Sucursal Centro     ] │
+│  Filtrar por resultado: [Todas                ▼] │
+│                                                   │
+│  ┌────────────────────────────────────────────────┐│
+│  │ ✅ Sucursal Centro          [👁️ Ver] [🗑️]  ││
+│  │   15/01/2025 10:30 · ID #1                    ││
+│  │   8/12 OK (66.7%) · Falt: 2 · Sobr: 1        ││
+│  └────────────────────────────────────────────────┘│
+│  ┌────────────────────────────────────────────────┐│
+│  │ 🔴 Sucursal Norte             [👁️ Ver] [🗑️] ││
+│  │   14/01/2025 16:45 · ID #2                    ││
+│  │   5/10 OK (50%) · Falt: 3 · Sobr: 1          ││
+│  └────────────────────────────────────────────────┘│
+└──────────────────────────────────────────────────┘
+```
+
+Las tarjetas tienen un color en el borde izquierdo que indica el resultado:
+- **Verde** ✅ → Aprobada
+- **Naranja** ⚠️ → Observada
+- **Rojo** 🔴 → Rechazada
+
+> 💡 **Tip:** si tenés muchas auditorías, usá el filtro por sucursal para encontrar rápidamente una en particular.
+
+### 👁️ Ver una auditoría guardada
+
+Apretá el botón **👁️ Ver** en cualquier tarjeta del historial para ver el detalle completo:
+
+- ✅ **Veredicto** igual que cuando la ejecutaste
+- 📊 **Métricas** completas
+- 🔴 **Faltantes** y **sobrantes** con sus cantidades
+- 🧾 **Exportar** el reporte de nuevo
+- 🗑️ **Eliminar** la auditoría si ya no la necesitás
+
+Para volver al listado general, apretá **← Volver al historial**.
 
 ---
 
