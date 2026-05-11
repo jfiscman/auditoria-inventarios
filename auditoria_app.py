@@ -527,11 +527,13 @@ def auditorias_por_sucursal(sucursal: str) -> list:
 
 
 def sembrar_datos_ejemplo():
-    """Carga datos de ejemplo en la DB para demostración."""
+    """Carga datos de ejemplo en la DB para demostración (sin borrar datos existentes)."""
     conn = get_db()
-    # Limpiar datos existentes
-    conn.execute("DELETE FROM diferencias")
-    conn.execute("DELETE FROM auditorias")
+    # Ya NO borramos datos existentes — solo agregamos de ejemplo si la DB está vacía
+    existing = conn.execute("SELECT COUNT(*) as c FROM auditorias").fetchone()
+    if existing['c'] > 0:
+        conn.close()
+        return  # No hacemos nada si ya hay datos
 
     import random
     random.seed(42)
@@ -1222,7 +1224,7 @@ with tabs[0]:
     if not tabs_res['faltantes'].empty:
         st.markdown("### 🔴 Faltantes (stock central > conteo físico)")
         st.dataframe(
-            tabs_res['faltantes'].style.applymap(
+            tabs_res['faltantes'].style.map(
                 lambda _: 'color: #dc2626; font-weight: 600;',
                 subset=['Diferencia'],
             ),
@@ -1232,7 +1234,7 @@ with tabs[0]:
     if not tabs_res['sobrantes'].empty:
         st.markdown("### 🟡 Sobrantes (conteo físico > stock central)")
         st.dataframe(
-            tabs_res['sobrantes'].style.applymap(
+            tabs_res['sobrantes'].style.map(
                 lambda _: 'color: #d97706; font-weight: 600;',
                 subset=['Diferencia'],
             ),
@@ -1282,8 +1284,15 @@ with tabs[0]:
                 tdf['Central'] = tdf['Cantidad']
             elif tipo == 'SOLO_FISICO':
                 tdf['Diferencia'] = tdf['Cantidad Físico']
+                tdf['Físico'] = tdf['Cantidad Físico']
+                tdf['Central'] = 0
             elif tipo == 'SOLO_CENTRAL':
                 tdf['Diferencia'] = -tdf['Cantidad Central']
+                tdf['Físico'] = 0
+                tdf['Central'] = tdf['Cantidad Central']
+            else:
+                # FALTANTE y SOBRANTE ya tienen Físico, Central, Diferencia
+                pass
             df_metricas = pd.concat([df_metricas, tdf], ignore_index=True)
 
     with tabs_metricas[0]:
