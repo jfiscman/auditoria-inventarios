@@ -529,77 +529,86 @@ def auditorias_por_sucursal(sucursal: str) -> list:
 def sembrar_datos_ejemplo():
     """Carga datos de ejemplo en la DB para demostración (sin borrar datos existentes)."""
     conn = get_db()
-    # Ya NO borramos datos existentes — solo agregamos de ejemplo si la DB está vacía
     existing = conn.execute("SELECT COUNT(*) as c FROM auditorias").fetchone()
     if existing['c'] > 0:
         conn.close()
-        return  # No hacemos nada si ya hay datos
+        return
 
-    import random
+    import random, io
     random.seed(42)
     from datetime import timedelta
 
-    # Productos base
-    productos = [
+    productos_base = [
         ('LAP-001', 'LAP-002', 'MON-001', 'TEC-001', 'TEC-002'),
         ('MOU-001', 'MOU-002', 'AUD-001', 'WEB-001', 'WEB-002'),
         ('CAB-001', 'CAB-002', 'DIS-001', 'DIS-002', 'TAB-001'),
         ('TAB-002', 'CHA-001', 'CHA-002', 'CBL-001', 'CBL-002'),
     ]
-    todos_productos = [p for grupo in productos for p in grupo]
+    todos_productos = [p for grupo in productos_base for p in grupo]
 
-    # Sucursales
     sucursales_data = [
         ('Sucursal Centro', 0.92, 0.05),
-        ('Sucursal Norte', 0.78, 0.12),
-        ('Sucursal Oeste', 0.88, 0.08),
-        ('Sucursal Este', 0.65, 0.18),
+        ('Sucursal Norte',  0.78, 0.12),
+        ('Sucursal Oeste',  0.88, 0.08),
+        ('Sucursal Este',   0.65, 0.18),
     ]
 
     base_date = datetime.now() - timedelta(days=90)
+    audit_id = 0
 
-    for sucursal_nombre, base_accuracy, noise in sucursales_data:
+    for suc_nombre, base_accuracy, noise in sucursales_data:
         num_audits = random.randint(3, 5)
         for i in range(num_audits):
-            # Fecha escalonada
             audit_date = base_date + timedelta(days=i * random.randint(15, 30))
             fecha_str = audit_date.isoformat()
 
             # Generar stocks
-            fisico_data = {}
-            central_data = {}
+            fisico_dict = {}
+            central_dict = {}
             for sku in todos_productos:
                 q_central = random.randint(0, 30)
-                # Variar precisión según la sucursal
                 if random.random() < base_accuracy:
                     q_fisico = q_central
                 else:
                     variacion = int(random.gauss(0, q_central * noise + 1))
                     q_fisico = max(0, q_central + variacion)
-                central_data[sku] = q_central
-                fisico_data[sku] = q_fisico
+                central_dict[sku] = q_central
+                fisico_dict[sku] = q_fisico
 
-            # Construir CSVs
-            import io
-            f_buf = io.StringIO()
-            f_buf.write('sku,cantidad\n')
-            for sku, q in fisico_data.items():
-                f_buf.write(f'{sku},{q}\n')
-            csv_f = f_buf.getvalue()
+            # ── Comparación inline (sin depender de ejecutar_auditoria) ──
+            todos_skus = sorted(set(fisico_dict) | set(central_dict))
+            coinc, falt, sob, sf, sc = [], [], [], [], []
+            total_f, total_c = 0, 0
 
-            c_buf = io.StringIO()
-            c_buf.write('sku,cantidad\n')
-            for sku, q in central_data.items():
-                c_buf.write(f'{sku},{q}\n')
-            csv_c = c_buf.getvalue()
+            for sku in todos_skus:
+                qf = fisico_dict.get(sku, 0)
+                qc = central_dict.get(sku, 0)
+                total_f += qf
+                total_c += qc
+                diff = qf - qc
 
-            # Ejecutar comparación
-            df_f = pd.read_csv(io.StringIO(csv_f))
-            df_c = pd.read_csv(io.StringIO(csv_c))
-            resultado = ejecutar_auditoria(df_f, df_c, 'sku', 'cantidad', 'sku', 'cantidad')
+                if sku not in central_dict:
+                    sf.append((sku, qf, 0, qf))
+                elif sku not in fisico_dict:
+                    sc.append((sku, 0, qc, -qc))
+                elif diff == 0:
+                    coinc.append((sku, qf, qc, 0))
+                elif diff > 0:
+                    sob.append((sku, qf, qc, diff))
+                else:
+                    falt.append((sku, qf, qc, diff))
 
-            # Guardar overrideando fecha
-            s = resultado['stats']
+            n_total = len(todos_skus)
+            n_ok = len(coinc)
+            pct = (n_ok / n_total * 100) if n_total else 0
+            if pct >= 95:
+                veredicto = 'APROBADA'
+            elif pct >= 80:
+                veredicto = 'OBSERVADA'
+            else:
+                veredicto = 'RECHAZADA'
+
+            # Guardar auditoría
             cur = conn.execute("""
                 INSERT INTO auditorias
                     (fecha, sucursal, archivo_fisico, archivo_central,
@@ -615,36 +624,30 @@ def sembrar_datos_ejemplo():
                         ?, ?,
                         ?, ?)
             """, (
-                fecha_str, sucursal_nombre,
-                f'fisico_{sucursal_nombre.lower().replace(" ", "_")}_{i+1}.csv',
-                f'central_{sucursal_nombre.lower().replace(" ", "_")}_{i+1}.csv',
-                s['total_sku'], s['coinciden'], s['diferencias'],
-                s['sobrantes'], s['faltantes'],
-                s['solo_fisico'], s['solo_central'],
-                s['total_fisico'], s['total_central'], s['diferencia_neta'],
-                s['pct_coincidencia'], s['veredicto'],
-                csv_f, csv_c,
+                fecha_str, suc_nombre,
+                f'ejemplo_fisico_{i+1}.csv',
+                f'ejemplo_central_{i+1}.csv',
+                n_total, n_ok, len(falt) + len(sob),
+                len(sob), len(falt),
+                len(sf), len(sc),
+                total_f, total_c, total_f - total_c,
+                round(pct, 1), veredicto,
+                '', '',
             ))
             audit_id = cur.lastrowid
 
             # Guardar diferencias
-            t = resultado['tablas']
             rows = []
-            for _, row in t['faltantes'].iterrows():
-                rows.append((audit_id, row['SKU'], 'FALTANTE',
-                             int(row['Físico']), int(row['Central']), int(row['Diferencia'])))
-            for _, row in t['sobrantes'].iterrows():
-                rows.append((audit_id, row['SKU'], 'SOBRANTE',
-                             int(row['Físico']), int(row['Central']), int(row['Diferencia'])))
-            for _, row in t['solo_fisico'].iterrows():
-                rows.append((audit_id, row['SKU'], 'SOLO_FISICO',
-                             int(row['Cantidad Físico']), 0, int(row['Cantidad Físico'])))
-            for _, row in t['solo_central'].iterrows():
-                rows.append((audit_id, row['SKU'], 'SOLO_CENTRAL',
-                             0, int(row['Cantidad Central']), -int(row['Cantidad Central'])))
-            for _, row in t['coinciden'].iterrows():
-                rows.append((audit_id, row['SKU'], 'COINCIDE',
-                             int(row['Cantidad']), int(row['Cantidad']), 0))
+            for sku, fis, cen, dif in falt:
+                rows.append((audit_id, sku, 'FALTANTE', fis, cen, dif))
+            for sku, fis, cen, dif in sob:
+                rows.append((audit_id, sku, 'SOBRANTE', fis, cen, dif))
+            for sku, fis, cen, dif in sf:
+                rows.append((audit_id, sku, 'SOLO_FISICO', fis, cen, dif))
+            for sku, fis, cen, dif in sc:
+                rows.append((audit_id, sku, 'SOLO_CENTRAL', fis, cen, dif))
+            for sku, fis, cen, dif in coinc:
+                rows.append((audit_id, sku, 'COINCIDE', fis, cen, dif))
             if rows:
                 conn.executemany("""
                     INSERT INTO diferencias
@@ -654,6 +657,8 @@ def sembrar_datos_ejemplo():
 
     conn.commit()
     conn.close()
+    if audit_id:
+        st.cache_data.clear()
 
 
 # Inicializar base de datos al arrancar
@@ -692,7 +697,6 @@ def parse_cantidad(val) -> int:
         return 0
 
 
-@st.cache_data(show_spinner="🔎 Analizando inventarios...")
 def ejecutar_auditoria(df_fisico: pd.DataFrame, df_central: pd.DataFrame,
                        sku_col_f: str, qty_col_f: str,
                        sku_col_c: str, qty_col_c: str) -> dict:
@@ -992,19 +996,27 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
     else:
-        st.markdown("### 📥 ¿Base vacía?")
+        st.markdown("### 📭 Sin auditorías")
         st.markdown(
             "<p style='color: #6b7280; font-size: 0.85rem;'>"
-            "Cargá datos de ejemplo para explorar la app:</p>",
+            "Ejecutá una desde la pestaña principal o cargá ejemplos.</p>",
             unsafe_allow_html=True,
         )
-        if st.button("🎲 Cargar datos de ejemplo", use_container_width=True):
-            with st.spinner("Generando auditorías de ejemplo..."):
-                sembrar_datos_ejemplo()
-                st.cache_data.clear()
-                st.rerun()
 
     st.markdown("---")
+
+    # Siempre mostrar opción de cargar ejemplos
+    st.markdown("### ⚙️ Mantenimiento")
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        if st.button("🎲 Cargar ejemplos", use_container_width=True):
+            sembrar_datos_ejemplo()
+            st.cache_data.clear()
+            st.rerun()
+    with col_m2:
+        if st.button("🔄 Refrescar", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
 
     st.markdown(
         "<p style='color: #9ca3af; font-size: 0.8rem;'>"
@@ -1744,19 +1756,58 @@ with tabs[1]:
             "cómo funciona el panel de sucursales.</p>",
             unsafe_allow_html=True,
         )
-        if st.button("🎲 Cargar datos de ejemplo", use_container_width=False):
-            with st.spinner("Generando auditorías de ejemplo..."):
+        col_se1, col_se2 = st.columns([1, 1])
+        with col_se1:
+            if st.button("🎲 Cargar datos de ejemplo", use_container_width=True):
                 sembrar_datos_ejemplo()
                 st.cache_data.clear()
+                st.rerun()
+        with col_se2:
+            if st.button("🔄 Forzar refresco", use_container_width=True):
+                st.cache_data.clear()
+                st.session_state.audit_id_ver = None
+                st.session_state.sucursal_ver = None
                 st.rerun()
         st.stop()
 
     # Métrica global
     total_audits = sum(s['total_auditorias'] for s in sucursales)
     st.markdown(
-        f"<p style='color: #6b7280;'>{total_audits} auditorías en {len(sucursales)} sucursales.</p>",
+        f"<p style='color: #6b7280;'>{total_audits} auditorías en {len(sucursales)} sucursales. "
+        f"<small>(Si no ves datos actualizados, usá 🔄 Forzar refresco abajo)</small></p>",
         unsafe_allow_html=True,
     )
+
+    # Siempre mostrar botón de refresco + seed
+    col_r1, col_r2, col_r3 = st.columns([1, 1, 2])
+    with col_r1:
+        if st.button("🔄 Forzar refresco", use_container_width=True):
+            st.cache_data.clear()
+            st.session_state.audit_id_ver = None
+            st.session_state.sucursal_ver = None
+            st.rerun()
+    with col_r2:
+        if st.button("🗑️ Resetear DB", use_container_width=True, 
+                     help="Borra todos los datos y recarga ejemplos"):
+            conn = get_db()
+            conn.execute("DELETE FROM diferencias")
+            conn.execute("DELETE FROM auditorias")
+            conn.commit()
+            conn.close()
+            st.cache_data.clear()
+            st.session_state.audit_id_ver = None
+            st.session_state.sucursal_ver = None
+            # Auto-seed after wipe
+            sembrar_datos_ejemplo()
+            st.rerun()
+    with col_r3:
+        st.markdown(
+            "<p style='color: #9ca3af; font-size: 0.8rem; padding-top: 6px;'>"
+            "Refresco = recargar datos · Resetear = vaciar DB y volver a empezar</p>",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
 
     # Grilla de sucursales
     cols_grilla = st.columns(3)
