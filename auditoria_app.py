@@ -908,57 +908,124 @@ def ejecutar_auditoria(df_fisico: pd.DataFrame, df_central: pd.DataFrame,
 
 
 def generar_reporte_txt(resultado: dict, sucursal: str = "") -> str:
+    """Genera un reporte narrativo y fácil de leer para el analista."""
     s = resultado['stats']
+    t = resultado['tablas']
+    now_str = datetime.now().strftime('%d/%m/%Y %H:%S')
+
     lines = []
-    lines.append("=" * 64)
-    lines.append("  REPORTE DE AUDITORÍA DE INVENTARIO")
+    lines.append("=" * 66)
+    lines.append("  INFORME DE AUDITORÍA DE INVENTARIO")
     if sucursal:
         lines.append(f"  Sucursal: {sucursal}")
-    lines.append(f"  Fecha: {datetime.now():%Y-%m-%d %H:%M}")
-    lines.append("=" * 64)
-    lines.append("")
-    lines.append("📊  RESUMEN")
-    lines.append("-" * 40)
-    lines.append(f"  SKU únicos analizados:    {s['total_sku']:>6}")
-    lines.append(f"  Coinciden (sin diff):     {s['coinciden']:>6}  ({s['pct_coincidencia']}%)")
-    lines.append(f"  Con diferencias:           {s['diferencias']:>6}")
-    lines.append(f"  → Sobrantes:               {s['sobrantes']:>6}")
-    lines.append(f"  → Faltantes:               {s['faltantes']:>6}")
-    lines.append(f"  Solo en físico:            {s['solo_fisico']:>6}")
-    lines.append(f"  Solo en central:           {s['solo_central']:>6}")
-    lines.append("")
-    lines.append(f"  Total unidades físicas:    {s['total_fisico']:>8}")
-    lines.append(f"  Total unidades central:    {s['total_central']:>8}")
-    lines.append(f"  Diferencia neta:           {s['diferencia_neta']:>8}")
-    lines.append("")
-    lines.append(f"  VEREDICTO: {s['veredicto_icono']} {s['veredicto']} — {s['veredicto_msg']}")
+    lines.append(f"  Fecha: {now_str}")
+    lines.append("=" * 66)
     lines.append("")
 
-    def fmt_tabla(titulo, df, cols):
-        if df.empty:
-            return
-        lines.append(f"{titulo}")
-        lines.append("-" * 64)
-        headers = "  ".join(f"{c:<20}" for c in cols)
-        lines.append(f"  {headers}")
-        lines.append("  " + "-" * (len(cols) * 22))
-        for _, row in df.iterrows():
-            vals = "  ".join(f"{str(row[c]):<20}" for c in cols)
-            lines.append(f"  {vals}")
+    # ─── VEREDICTO ───
+    lines.append(f"{s['veredicto_icono']}  VEREDICTO: {s['veredicto']}  ({s['pct_coincidencia']}% de acierto)")
+    lines.append(f"     {s['veredicto_msg']}")
+    lines.append("")
+
+    # ─── RESUMEN EN UNA LÍNEA ───
+    lines.append("──  EN POCAS PALABRAS  ──────────────────────────────")
+    lines.append(f"  Se revisaron {s['total_sku']} productos distintos entre el conteo físico")
+    lines.append(f"  y el stock del sistema central.")
+    if s['coinciden'] == s['total_sku']:
+        lines.append(f"  ¡Todos los productos coinciden exactamente! No hay diferencias.")
+    else:
+        lines.append(f"  De ellos, {s['coinciden']} están correctos y {s['diferencias']} presentan")
+        lines.append(f"  diferencias entre lo que hay en la sucursal y lo que dice el sistema.")
+        if s['faltantes'] > 0 or s['sobrantes'] > 0:
+            lines.append(f"  → {s['faltantes']} productos tienen MENOS stock del esperado (faltantes).")
+            lines.append(f"  → {s['sobrantes']} productos tienen MÁS stock del esperado (sobrantes).")
+        if s['solo_fisico'] > 0:
+            lines.append(f"  → {s['solo_fisico']} productos están en la sucursal pero NO existen en el central.")
+        if s['solo_central'] > 0:
+            lines.append(f"  → {s['solo_central']} productos están en el central pero NO existen en la sucursal.")
+    lines.append(f"  Diferencia total de unidades: {s['diferencia_neta']:+,} uds")
+    lines.append("")
+
+    # ─── TABLA RESUMEN ───
+    lines.append("──  DETALLE POR PRODUCTO  ───────────────────────────")
+    lines.append("")
+    lines.append(f"  {'PRODUCTO':<20} {'FÍSICO':>8} {'CENTRAL':>8} {'DIF':>6}  {'TIPO':<12}")
+    lines.append(f"  {'─'*20} {'─'*8} {'─'*8} {'─'*6}  {'─'*12}")
+
+    def write_sku_row(sku: str, fis: int, cen: int, tipo: str, dif: int | str = ""):
+        dif_str = f"{dif:>+6}" if isinstance(dif, int) else f"{str(dif):>6}"
+        lines.append(f"  {sku:<20} {fis:>8} {cen:>8} {dif_str}  {tipo:<12}")
+
+    # Faltantes primero (lo más crítico)
+    if not t['faltantes'].empty:
+        for _, row in t['faltantes'].iterrows():
+            write_sku_row(row['SKU'], int(row['Físico']), int(row['Central']), '🔴 FALTANTE', int(row['Diferencia']))
+
+    # Sobrantes
+    if not t['sobrantes'].empty:
+        for _, row in t['sobrantes'].iterrows():
+            write_sku_row(row['SKU'], int(row['Físico']), int(row['Central']), '🟡 SOBRANTE', int(row['Diferencia']))
+
+    # Solo físico
+    if not t['solo_fisico'].empty:
+        for _, row in t['solo_fisico'].iterrows():
+            write_sku_row(row['SKU'], int(row['Cantidad Físico']), 0, '❓ SÓLO FÍSICO', int(row['Cantidad Físico']))
+
+    # Solo central
+    if not t['solo_central'].empty:
+        for _, row in t['solo_central'].iterrows():
+            write_sku_row(row['SKU'], 0, int(row['Cantidad Central']), '❓ SÓLO CENTRAL', -int(row['Cantidad Central']))
+
+    lines.append("")
+
+    # ─── ACCIONES SUGERIDAS ───
+    lines.append("──  ¿QUÉ HACER CON ESTOS RESULTADOS?  ──────────────")
+    lines.append("")
+    if s['veredicto'] == 'APROBADA':
+        lines.append("  ✅ Todo en orden. No se requieren ajustes.")
+        lines.append("     Podés firmar el reporte y archivar.")
+    elif s['veredicto'] == 'OBSERVADA':
+        lines.append("  ⚠️  Hay diferencias menores que revisar:")
+        if not t['faltantes'].empty:
+            lines.append(f"     • Revisá los {len(t['faltantes'])} productos faltantes: puede ser")
+            lines.append("       un error de carga, un movimiento sin registrar o un extravío.")
+        if not t['sobrantes'].empty:
+            lines.append(f"     • Revisá los {len(t['sobrantes'])} productos sobrantes: puede haber")
+            lines.append("       entradas no registradas o errores de conteo.")
+        if not t['solo_fisico'].empty:
+            lines.append(f"     • Los {len(t['solo_fisico'])} productos 'solo en físico' quizás nunca")
+            lines.append("       se cargaron al sistema. Verificá si corresponde darlos de alta.")
+        if not t['solo_central'].empty:
+            lines.append(f"     • Los {len(t['solo_central'])} productos 'solo en central' quizás")
+            lines.append("       se dieron de baja física pero no en el sistema.")
         lines.append("")
+        lines.append("     Si las diferencias son por errores de carga o movimientos")
+        lines.append("     no registrados, ajustá el stock central y volvé a auditar.")
+    else:
+        lines.append("  🔴  Diferencias importantes que requieren acción urgente:")
+        if not t['faltantes'].empty:
+            lines.append(f"     • Hay {len(t['faltantes'])} productos con faltantes. Hacé un")
+            lines.append("       recuento físico manual de estos productos.")
+        if not t['sobrantes'].empty:
+            lines.append(f"     • Hay {len(t['sobrantes'])} productos con sobrantes. Verificá")
+            lines.append("       si hubieron ingresos no registrados.")
+        if not t['solo_fisico'].empty or not t['solo_central'].empty:
+            lines.append("     • Revisá los productos que existen en un lado pero no en el")
+            lines.append("       otro: podrían ser errores de carga o productos mal dados de alta/baja.")
+        lines.append("")
+        lines.append("     Se recomienda NO ajustar el sistema hasta tener certeza")
+        lines.append("     del recuento físico de los productos conflictivos.")
 
-    t = resultado['tablas']
-    fmt_tabla("🔴  FALTANTES", t['faltantes'], ['SKU', 'Físico', 'Central', 'Diferencia'])
-    fmt_tabla("🟡  SOBRANTES", t['sobrantes'], ['SKU', 'Físico', 'Central', 'Diferencia'])
-    fmt_tabla("❓  EN FÍSICO — NO EN CENTRAL", t['solo_fisico'], ['SKU', 'Cantidad Físico'])
-    fmt_tabla("❓  EN CENTRAL — NO EN FÍSICO", t['solo_central'], ['SKU', 'Cantidad Central'])
+    lines.append("")
+    lines.append("─" * 66)
+    lines.append("")
+    lines.append("  Auditor: ___________________________               ")
+    lines.append("  Firma:   ___________________________               ")
+    lines.append("")
+    lines.append("  [Este informe fue generado automáticamente por el")
+    lines.append(f"   Agente de Auditoría de Inventarios · ID #{s.get('_audit_id', '')}]")
+    lines.append("")
 
-    lines.append("")
-    lines.append("=" * 64)
-    lines.append("")
-    lines.append("  Auditor: ___________________________")
-    lines.append("  Fecha:   ___________________________")
-    lines.append("")
     return "\n".join(lines)
 
 
@@ -1280,7 +1347,7 @@ with tabs[0]:
 
     st.cache_data.clear()
 
-    # ─── VEREDICTO HERO ───
+    tabs_res = resultado['tablas']
     ver_colors = {"APROBADA": "#16a34a", "OBSERVADA": "#d97706", "RECHAZADA": "#dc2626"}
     vcolor = ver_colors.get(s['veredicto'], "gray")
     pill_cls = {"APROBADA": "pill-green", "OBSERVADA": "pill-yellow", "RECHAZADA": "pill-red"}
@@ -1290,247 +1357,195 @@ with tabs[0]:
         <span class="v-icon">{s['veredicto_icono']}</span>
         <span class="v-title" style="color: {vcolor};">{s['veredicto']}</span>
         <span class="pill {pill_cls.get(s['veredicto'], '')}">{s['pct_coincidencia']}%</span>
-        <div class="v-sub">{s['veredicto_msg']}</div>
+        <div class="v-sub">{s['veredicto_msg']} &nbsp;·&nbsp; {s['coinciden']}/{s['total_sku']} productos correctos</div>
     </div>
     """, unsafe_allow_html=True)
 
-    # ─── Métricas principales ───
-    st.markdown('<div class="section-label">Resumen</div>', unsafe_allow_html=True)
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("SKU Analizados", s['total_sku'])
-    m2.metric("Coinciden", f"{s['coinciden']} ({s['pct_coincidencia']}%)")
-    m3.metric("Con Diferencias", s['diferencias'],
-              delta=f"+{s['sobrantes']} sobr / -{s['faltantes']} falt")
-    m4.metric("Diferencia Neta", f"{s['diferencia_neta']:+,} uds")
-
-    m5, m6, m7, m8 = st.columns(4)
-    m5.metric("Unid. Físico", f"{s['total_fisico']:,}")
-    m6.metric("Unid. Central", f"{s['total_central']:,}")
-    m7.metric("Solo en Físico", s['solo_fisico'])
-    m8.metric("Solo en Central", s['solo_central'])
-
-    # ─── Tablas de detalle ───
     tabs_res = resultado['tablas']
 
-    if not tabs_res['faltantes'].empty:
-        st.markdown("### 🔴 Faltantes (stock central > conteo físico)")
-        st.dataframe(
-            tabs_res['faltantes'].style.map(
-                lambda _: 'color: #dc2626; font-weight: 600;',
-                subset=['Diferencia'],
-            ),
-            use_container_width=True, hide_index=True,
-        )
+    # ─── RESUMEN EN UNA LÍNEA ───
+    dif_count = s['diferencias']
+    falt_count = s['faltantes']
+    sob_count = s['sobrantes']
+    sf_count = s['solo_fisico']
+    sc_count = s['solo_central']
 
-    if not tabs_res['sobrantes'].empty:
-        st.markdown("### 🟡 Sobrantes (conteo físico > stock central)")
-        st.dataframe(
-            tabs_res['sobrantes'].style.map(
-                lambda _: 'color: #d97706; font-weight: 600;',
-                subset=['Diferencia'],
-            ),
-            use_container_width=True, hide_index=True,
-        )
+    if s['coinciden'] == s['total_sku']:
+        st.success("🎉 **¡Todos los productos coinciden exactamente!** No hay diferencias entre el conteo físico y el sistema central.")
+    else:
+        partes = []
+        partes.append(f"Se revisaron **{s['total_sku']}** productos. De ellos, **{s['coinciden']}** están correctos ({s['pct_coincidencia']}%) y **{dif_count}** presentan diferencias.")
+        if falt_count > 0:
+            partes.append(f"\n\n🔴 **{falt_count} productos tienen faltantes** (hay menos stock físico del que dice el sistema)")
+        if sob_count > 0:
+            partes.append(f"\n\n🟡 **{sob_count} productos tienen sobrantes** (hay más stock físico del que dice el sistema)")
+        if sf_count > 0:
+            partes.append(f"\n\n❓ **{sf_count} productos están en la sucursal pero no existen en el sistema central**")
+        if sc_count > 0:
+            partes.append(f"\n\n❓ **{sc_count} productos están en el sistema central pero no existen en la sucursal**")
+        partes.append(f"\n\n📊 **Diferencia neta de unidades:** {s['diferencia_neta']:+,}")
+        st.markdown("".join(partes))
 
-    if not tabs_res['solo_fisico'].empty:
-        st.markdown("### ❓ En físico, no registrados en central")
-        st.dataframe(tabs_res['solo_fisico'], use_container_width=True, hide_index=True)
-
-    if not tabs_res['solo_central'].empty:
-        st.markdown("### ❓ En central, no registrados en físico")
-        st.dataframe(tabs_res['solo_central'], use_container_width=True, hide_index=True)
-
-    if not tabs_res['coinciden'].empty:
-        with st.expander(f"✅ Productos que coinciden ({len(tabs_res['coinciden'])})"):
-            st.dataframe(tabs_res['coinciden'], use_container_width=True, hide_index=True)
-
-    # ─── Métricas avanzadas ───
     st.markdown("---")
-    st.markdown("### 📈 Métricas de la auditoría")
 
-    tabs_metricas = st.tabs(["📊 Distribución", "🎯 Precisión", "⚠️ Impacto"])
+    # ─── TABLA ÚNICA: TODOS LOS PRODUCTOS ───
+    if dif_count > 0:
+        st.markdown("### 📋 Detalle de productos con diferencias")
 
-    # Construir df_unificado para métricas
-    df_metricas = pd.DataFrame()
-    for tipo in ['COINCIDE', 'FALTANTE', 'SOBRANTE', 'SOLO_FISICO', 'SOLO_CENTRAL']:
-        key = {'COINCIDE': 'coinciden', 'FALTANTE': 'faltantes',
-               'SOBRANTE': 'sobrantes', 'SOLO_FISICO': 'solo_fisico',
-               'SOLO_CENTRAL': 'solo_central'}[tipo]
-        tdf = resultado['tablas'].get(key, pd.DataFrame())
-        if not tdf.empty:
-            tdf = tdf.copy()
-            tdf['Tipo'] = tipo
-            if tipo == 'COINCIDE':
-                tdf['Diferencia'] = 0
-                tdf['Físico'] = tdf['Cantidad']
-                tdf['Central'] = tdf['Cantidad']
-            elif tipo == 'SOLO_FISICO':
-                tdf['Diferencia'] = tdf['Cantidad Físico']
-                tdf['Físico'] = tdf['Cantidad Físico']
-                tdf['Central'] = 0
-            elif tipo == 'SOLO_CENTRAL':
-                tdf['Diferencia'] = -tdf['Cantidad Central']
-                tdf['Físico'] = 0
-                tdf['Central'] = tdf['Cantidad Central']
-            df_metricas = pd.concat([df_metricas, tdf], ignore_index=True)
+        # Build unified table with color labels
+        filas = []
+        if not tabs_res['faltantes'].empty:
+            for _, row in tabs_res['faltantes'].iterrows():
+                filas.append({'SKU': row['SKU'], 'Físico': int(row['Físico']),
+                              'Central': int(row['Central']), 'Diferencia': int(row['Diferencia']),
+                              'Tipo': 'FALTANTE'})
+        if not tabs_res['sobrantes'].empty:
+            for _, row in tabs_res['sobrantes'].iterrows():
+                filas.append({'SKU': row['SKU'], 'Físico': int(row['Físico']),
+                              'Central': int(row['Central']), 'Diferencia': int(row['Diferencia']),
+                              'Tipo': 'SOBRANTE'})
+        if not tabs_res['solo_fisico'].empty:
+            for _, row in tabs_res['solo_fisico'].iterrows():
+                filas.append({'SKU': row['SKU'], 'Físico': int(row['Cantidad Físico']),
+                              'Central': 0, 'Diferencia': int(row['Cantidad Físico']),
+                              'Tipo': 'SOLO EN FÍSICO'})
+        if not tabs_res['solo_central'].empty:
+            for _, row in tabs_res['solo_central'].iterrows():
+                filas.append({'SKU': row['SKU'], 'Físico': 0,
+                              'Central': int(row['Cantidad Central']), 'Diferencia': -int(row['Cantidad Central']),
+                              'Tipo': 'SOLO EN CENTRAL'})
 
-    with tabs_metricas[0]:
-        st.markdown("**Distribución de diferencias**")
+        if filas:
+            df_unico = pd.DataFrame(filas)
 
-        if not df_metricas.empty:
-            def cat_diff(d):
-                d = int(d)
-                if d == 0: return '0 (Coincide)'
-                elif abs(d) == 1: return '±1'
-                elif abs(d) <= 3: return '±2 a 3'
-                elif abs(d) <= 10: return '±4 a 10'
-                else: return '> ±10'
+            def style_tipo(val):
+                colors = {'FALTANTE': 'background:#fef2f2; color:#dc2626; font-weight:600;',
+                          'SOBRANTE': 'background:#fefce8; color:#d97706; font-weight:600;',
+                          'SOLO EN FÍSICO': 'background:#f0f9ff; color:#2563eb; font-weight:600;',
+                          'SOLO EN CENTRAL': 'background:#f5f3ff; color:#7c3aed; font-weight:600;'}
+                return colors.get(val, '')
 
-            df_metricas['Categoría'] = df_metricas['Diferencia'].apply(cat_diff)
-            dist = df_metricas['Categoría'].value_counts().reindex(
-                ['0 (Coincide)', '±1', '±2 a 3', '±4 a 10', '> ±10'],
-                fill_value=0
+            def style_diff(val):
+                if val < 0: return 'color:#dc2626; font-weight:700;'
+                if val > 0: return 'color:#d97706; font-weight:700;'
+                return ''
+
+            styled = df_unico.style \
+                .map(style_tipo, subset=['Tipo']) \
+                .map(style_diff, subset=['Diferencia'])
+
+            st.dataframe(styled, use_container_width=True, hide_index=True,
+                         column_config={
+                             'SKU': 'Producto',
+                             'Físico': st.column_config.NumberColumn('Físico', help='Conteo físico en sucursal'),
+                             'Central': st.column_config.NumberColumn('Central', help='Stock según sistema'),
+                             'Diferencia': st.column_config.NumberColumn('Diferencia', help='Físico - Central'),
+                             'Tipo': 'Situación',
+                         })
+
+        st.caption("Diferencia positiva = sobrante (más en físico). Diferencia negativa = faltante (más en central).")
+
+        # ─── PRODUCTOS QUE COINCIDEN (colapsado) ───
+        if not tabs_res['coinciden'].empty:
+            with st.expander(f"✅ Productos que coinciden ({len(tabs_res['coinciden'])})"):
+                st.dataframe(tabs_res['coinciden'], use_container_width=True, hide_index=True)
+    else:
+        # Sin diferencias, mostramos todos los productos como OK
+        if not tabs_res['coinciden'].empty:
+            with st.expander(f"✅ Todos los productos ({len(tabs_res['coinciden'])})"):
+                st.dataframe(tabs_res['coinciden'], use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
+    # ─── INTERPRETACIÓN (QUÉ HACER) ───
+    st.markdown("### 💡 Interpretación y acciones sugeridas")
+
+    if s['veredicto'] == 'APROBADA':
+        st.info("""
+        **✅ Todo en orden.** No se requieren ajustes. Podés firmar el reporte y archivar.
+
+        Recordá seguir realizando auditorías periódicas para mantener el control.
+        """)
+    elif s['veredicto'] == 'OBSERVADA':
+        items = []
+        if falt_count > 0:
+            items.append(f"**🔴 {falt_count} faltantes:** Revisá estos productos. Puede ser un error de carga en el sistema, una venta sin registrar o un extravío.")
+        if sob_count > 0:
+            items.append(f"**🟡 {sob_count} sobrantes:** Verificá si hubo ingresos no registrados o si el conteo físico tiene errores.")
+        if sf_count > 0:
+            items.append(f"**❓ {sf_count} productos solo en físico:** Probablemente nunca se cargaron al sistema. Verificá si corresponde darlos de alta.")
+        if sc_count > 0:
+            items.append(f"**❓ {sc_count} productos solo en central:** Quizás se descargaron del sistema pero el físico no se actualizó, o se perdieron.")
+
+        st.warning("⚠️ **Hay diferencias menores que revisar.**")
+        for item in items:
+            st.markdown(f"- {item}")
+        st.markdown("""
+        **¿Qué hacer?** Si las diferencias son por errores de carga o movimientos no registrados,
+        ajustá el stock central y volvé a auditar. Si encontrás producto físicamente faltante
+        sin explicación, reportalo a supervisión.
+        """)
+    else:
+        items = []
+        if falt_count > 0:
+            items.append(f"**🔴 {falt_count} faltantes** — Hacé un recuento físico manual de estos productos antes de ajustar el sistema.")
+        if sob_count > 0:
+            items.append(f"**🟡 {sob_count} sobrantes** — Verificá ingresos no registrados o errores de carga históricos.")
+        if sf_count > 0:
+            items.append(f"**❓ {sf_count} productos solo en físico** — Necesitan ser cargados al sistema o retirados del sector.")
+        if sc_count > 0:
+            items.append(f"**❓ {sc_count} productos solo en central** — Necesitan ser dados de baja o localizados físicamente.")
+
+        st.error("🔴 **Diferencias significativas detectadas. Requiere acción urgente.**")
+        for item in items:
+            st.markdown(f"- {item}")
+        st.markdown("""
+        **⚠️ Importante:** No ajustes el stock del sistema central hasta tener certeza
+        del recuento físico de los productos conflictivos. Hacé un recuento manual
+        y luego corregí el sistema.
+        """)
+
+    # ─── COMPARATIVA HISTÓRICA ───
+    if sucursal:
+        historial_suc = auditorias_por_sucursal(sucursal)
+        historial_suc = [h for h in historial_suc
+                         if h['fecha'] < datetime.now().isoformat()]
+        if len(historial_suc) >= 1:
+            st.markdown("---")
+            st.markdown("### 📈 Histórico de la sucursal")
+            st.caption(f"Evolución de '{sucursal}' comparada con auditorías anteriores")
+
+            data_hist = []
+            for h in historial_suc:
+                data_hist.append({
+                    'Fecha': datetime.fromisoformat(h['fecha']).strftime('%d/%m'),
+                    '% Coincidencia': h['pct_coincidencia'],
+                })
+            data_hist.append({
+                'Fecha': 'Actual',
+                '% Coincidencia': s['pct_coincidencia'],
+            })
+            df_hist = pd.DataFrame(data_hist)
+            if len(df_hist) >= 2:
+                st.line_chart(df_hist.set_index('Fecha')['% Coincidencia'])
+
+            prom_hist = sum(h['pct_coincidencia'] for h in historial_suc) / len(historial_suc)
+            diff_hist = s['pct_coincidencia'] - prom_hist
+            delta_str = f"+{diff_hist:.1f}%" if diff_hist > 0 else f"{diff_hist:.1f}%"
+            delta_color = "#16a34a" if diff_hist >= 0 else "#dc2626"
+
+            st.markdown(
+                f"<div style='color: #6b7280; text-align:center;'>"
+                f"Promedio histórico: <b>{prom_hist:.1f}%</b> &nbsp;·&nbsp; "
+                f"Actual: <b>{s['pct_coincidencia']}%</b> &nbsp;·&nbsp; "
+                f"<span style='color: {delta_color}; font-weight: 600;'>vs {delta_str}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
             )
-
-            col_dist1, col_dist2 = st.columns([1, 1])
-            with col_dist1:
-                st.bar_chart(dist)
-            with col_dist2:
-                st.markdown("**Resumen por categoría**")
-                for cat, count in dist.items():
-                    pct = count / len(df_metricas) * 100
-                    icon = "✅" if cat == '0 (Coincide)' else "⚠️"
-                    st.markdown(f"{icon} **{cat}:** {count} productos ({pct:.1f}%)")
-
-            st.caption("Productos con diferencia 0 = stock correcto. "
-                       "Diferencias > ±10 requieren investigación urgente.")
-
-    with tabs_metricas[1]:
-        st.markdown("**Indicadores de precisión**")
-
-        if not df_metricas.empty:
-            total_items = len(df_metricas)
-            correctos = len(df_metricas[df_metricas['Diferencia'] == 0])
-            incorrectos = total_items - correctos
-            total_unidades_fisico = df_metricas['Físico'].sum()
-            total_unidades_central = df_metricas['Central'].sum()
-
-            iar_count = (correctos / total_items * 100) if total_items else 0
-            iar_value = 100 - (abs(df_metricas['Diferencia']).sum() / max(total_unidades_central, 1) * 100)
-            iar_value = max(0, min(100, iar_value))
-
-            col_p1, col_p2, col_p3 = st.columns(3)
-            col_p1.metric("📊 Precisión (SKU)", f"{iar_count:.1f}%",
-                          help="Porcentaje de SKU que coinciden exactamente")
-            col_p2.metric("📦 Precisión (volumen)", f"{iar_value:.1f}%",
-                          help="Qué % del volumen total de stock está correcto")
-            col_p3.metric("🔢 Error promedio", f"{abs(df_metricas['Diferencia']).mean():.1f} uds",
-                          help="Promedio de unidades de error por producto")
-
-            st.markdown("**Resumen de la auditoría**")
-            resumen_data = {
-                'Indicador': [
-                    'Total SKU analizados', 'SKU correctos', 'SKU con diferencias',
-                    'Total unidades físicas', 'Total unidades central',
-                    'Diferencia neta (uds)',
-                    'Tasa de precisión (SKU)', 'Tasa de precisión (volumen)',
-                    'Error promedio por SKU',
-                ],
-                'Valor': [
-                    f'{total_items}', f'{correctos}', f'{incorrectos}',
-                    f'{total_unidades_fisico:,.0f}', f'{total_unidades_central:,.0f}',
-                    f'{total_unidades_fisico - total_unidades_central:+,.0f}',
-                    f'{iar_count:.1f}%', f'{iar_value:.1f}%',
-                    f'{abs(df_metricas["Diferencia"]).mean():.1f}',
-                ],
-                'Evaluación': [
-                    '—',
-                    '✅ Bueno' if iar_count >= 95 else '⚠️ Regular' if iar_count >= 80 else '🔴 Malo',
-                    '—', '—', '—',
-                    '✅ OK' if abs(total_unidades_fisico - total_unidades_central) < 10
-                    else '⚠️ Revisar' if abs(total_unidades_fisico - total_unidades_central) < 50
-                    else '🔴 Alta',
-                    '✅ Bueno' if iar_count >= 95 else '⚠️ Regular' if iar_count >= 80 else '🔴 Malo',
-                    '✅ Bueno' if iar_value >= 95 else '⚠️ Regular' if iar_value >= 80 else '🔴 Malo',
-                    '✅ Bajo' if abs(df_metricas['Diferencia']).mean() < 2
-                    else '⚠️ Medio' if abs(df_metricas['Diferencia']).mean() < 5
-                    else '🔴 Alto',
-                ],
-            }
-            st.dataframe(pd.DataFrame(resumen_data), use_container_width=True, hide_index=True)
-
-    with tabs_metricas[2]:
-        st.markdown("**Productos con mayor impacto**")
-
-        if not df_metricas.empty:
-            top_falt = df_metricas[df_metricas['Diferencia'] < 0].copy()
-            top_falt['Impacto'] = top_falt['Diferencia'].abs()
-            top_falt = top_falt.nlargest(5, 'Impacto')[['SKU', 'Físico', 'Central', 'Diferencia', 'Impacto']]
-
-            top_sob = df_metricas[df_metricas['Diferencia'] > 0].copy()
-            top_sob['Impacto'] = top_sob['Diferencia']
-            top_sob = top_sob.nlargest(5, 'Impacto')[['SKU', 'Físico', 'Central', 'Diferencia', 'Impacto']]
-
-            col_i1, col_i2 = st.columns(2)
-            with col_i1:
-                st.markdown("**🔴 Top faltantes**")
-                if not top_falt.empty:
-                    st.dataframe(top_falt, use_container_width=True, hide_index=True)
-                else:
-                    st.success("No hay faltantes.")
-            with col_i2:
-                st.markdown("**🟡 Top sobrantes**")
-                if not top_sob.empty:
-                    st.dataframe(top_sob, use_container_width=True, hide_index=True)
-                else:
-                    st.success("No hay sobrantes.")
-
-            # Comparativa con histórico
-            if sucursal:
-                historial_suc = auditorias_por_sucursal(sucursal)
-                historial_suc = [h for h in historial_suc
-                                 if h['fecha'] < datetime.now().isoformat()]
-                if len(historial_suc) >= 1:
-                    st.markdown("---")
-                    st.markdown("**📊 Comparativa con auditorías anteriores**")
-                    st.caption(f"Evolución histórica de la sucursal '{sucursal}'")
-
-                    data_hist = []
-                    for h in historial_suc:
-                        data_hist.append({
-                            'Fecha': datetime.fromisoformat(h['fecha']).strftime('%d/%m'),
-                            '% Coincidencia': h['pct_coincidencia'],
-                        })
-                    data_hist.append({
-                        'Fecha': 'Actual',
-                        '% Coincidencia': s['pct_coincidencia'],
-                    })
-                    df_hist = pd.DataFrame(data_hist)
-                    if len(df_hist) >= 2:
-                        st.line_chart(df_hist.set_index('Fecha')['% Coincidencia'])
-
-                    prom_hist = sum(h['pct_coincidencia'] for h in historial_suc) / len(historial_suc)
-                    diff_hist = s['pct_coincidencia'] - prom_hist
-                    delta_str = f"+{diff_hist:.1f}%" if diff_hist > 0 else f"{diff_hist:.1f}%"
-                    delta_color = "#16a34a" if diff_hist >= 0 else "#dc2626"
-
-                    st.markdown(
-                        f"<div style='color: #6b7280;'>"
-                        f"Promedio histórico: <b>{prom_hist:.1f}%</b> &nbsp;·&nbsp; "
-                        f"Actual: <b>{s['pct_coincidencia']}%</b> &nbsp;·&nbsp; "
-                        f"<span style='color: {delta_color}; font-weight: 600;'>{delta_str}</span>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.info("📭 No hay auditorías anteriores de esta sucursal para comparar.")
-            else:
-                st.info("💡 Usá el campo **Sucursal** al ejecutar una auditoría "
-                        "para habilitar la comparativa histórica.")
 
     # ─── Exportación ───
     st.markdown("---")
-    st.markdown("### 💾 Exportar resultados")
+    st.markdown("### 💾 Exportar")
 
     reporte_txt = generar_reporte_txt(resultado, sucursal)
     base_name = f"auditoria_{sucursal or 'sucursal'}_{datetime.now():%Y%m%d_%H%M%S}"
@@ -1538,7 +1553,7 @@ with tabs[0]:
     col_d1, col_d2, col_d3 = st.columns(3)
     with col_d1:
         st.download_button(
-            "📄 Reporte (.txt)",
+            "📄 Informe (.txt)",
             data=reporte_txt,
             file_name=f"{base_name}.txt",
             mime="text/plain",
@@ -1554,28 +1569,14 @@ with tabs[0]:
         ], ignore_index=True)
         if not df_difs_export.empty:
             st.download_button(
-                "📋 Datos (.csv)",
+                "📋 Datos completos (.csv)",
                 data=df_difs_export.to_csv(index=False),
                 file_name=f"{base_name}_completo.csv",
                 mime="text/csv",
                 use_container_width=True,
             )
 
-    # ─── Nota final ───
-    st.markdown("")
-    if s['veredicto'] == "APROBADA":
-        st.success("✅ No se detectaron diferencias que requieran acción. "
-                    "Podés firmar el reporte y archivar.")
-    elif s['veredicto'] == "OBSERVADA":
-        st.warning("⚠️ Revisá las diferencias marcadas. Si corresponden a errores "
-                    "de carga o movimientos no registrados, ajustá el stock central.")
-    else:
-        st.error("🔴 Se detectaron diferencias significativas. Se recomienda "
-                  "realizar un recuento físico de los productos conflictivos "
-                  "antes de ajustar el sistema.")
-
-    st.info(f"💾 Auditoría guardada con ID **#{audit_id}**. Consultala desde "
-            "la pestaña **📋 Historial**.")
+    st.info(f"💾 Auditoría guardada con ID **#{audit_id}**. Podés consultarla después desde la pestaña **📋 Historial**.")
 
 # ─────────────────────────────────────────────
 #  TAB 2: Historial
@@ -1599,31 +1600,21 @@ with tabs[1]:
         s_hist = resultado_hist['stats']
         tabs_hist = resultado_hist['tablas']
 
-        # Breadcrumb
-        suc_name = a['sucursal'] or '(sin sucursal)'
-        st.markdown(f"""
-        <div class="breadcrumb">
-            <span class="bc-link" onclick="window.streamlit.setComponentValue('bc_panel')">🏪 Sucursales</span>
-            <span class="bc-sep">›</span>
-            <span class="bc-link" onclick="window.streamlit.setComponentValue('bc_suc')">{suc_name}</span>
-            <span class="bc-sep">›</span>
-            <span class="bc-current">#{audit_id_ver}</span>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # Navigation buttons
+        # Navegación
         col_bc1, col_bc2, _ = st.columns([1, 1, 4])
         with col_bc1:
-            if st.button("← Sucursal", type="secondary", use_container_width=True):
+            if st.button("← Volver a sucursal", type="secondary", use_container_width=True):
                 st.session_state.audit_id_ver = None
                 st.rerun()
         with col_bc2:
-            if st.button("← Panel", type="tertiary", use_container_width=True):
+            if st.button("← Todas las sucursales", type="tertiary", use_container_width=True):
                 st.session_state.audit_id_ver = None
                 st.session_state.sucursal_ver = None
                 st.rerun()
 
         st.markdown("---")
+
+        suc_name = a['sucursal'] or '(sin sucursal)'
 
         # Veredicto hero
         ver_colors = {"APROBADA": "#16a34a", "OBSERVADA": "#d97706", "RECHAZADA": "#dc2626"}
@@ -1667,14 +1658,14 @@ with tabs[1]:
             with st.expander(f"✅ Coinciden ({len(tabs_hist['coinciden'])})"):
                 st.dataframe(tabs_hist['coinciden'], use_container_width=True, hide_index=True)
 
-        # Exportar + Eliminar
+        # Exportar y eliminar
         st.markdown("---")
         col_exp, col_danger = st.columns([3, 1])
         with col_exp:
             st.markdown("### 💾 Exportar")
             reporte_hist = generar_reporte_txt(resultado_hist, a['sucursal'])
             st.download_button(
-                "📄 Descargar Reporte (.txt)",
+                "📄 Informe (.txt)",
                 data=reporte_hist,
                 file_name=f"auditoria_#{audit_id_ver}_{a['sucursal'] or 'sucursal'}_{a['fecha'][:10]}.txt",
                 mime="text/plain",
@@ -1682,14 +1673,12 @@ with tabs[1]:
             )
 
         with col_danger:
-            st.markdown("### &nbsp;")
-            with st.expander("🗑️ Eliminar"):
-                st.warning("⚠️ No se puede deshacer.")
-                if st.button("🗑️ Eliminar auditoría", use_container_width=True, type="primary"):
-                    eliminar_auditoria(audit_id_ver)
-                    st.session_state.audit_id_ver = None
-                    st.cache_data.clear()
-                    st.rerun()
+            st.markdown("### 🗑️")
+            if st.button("Eliminar auditoría", use_container_width=True, type="primary"):
+                eliminar_auditoria(audit_id_ver)
+                st.session_state.audit_id_ver = None
+                st.cache_data.clear()
+                st.rerun()
 
         st.stop()
 
@@ -1697,15 +1686,7 @@ with tabs[1]:
     if st.session_state.get('sucursal_ver'):
         sucursal_nombre = st.session_state.sucursal_ver
 
-        # Breadcrumb
-        st.markdown(f"""
-        <div class="breadcrumb">
-            <span class="bc-link">🏪 Sucursales</span>
-            <span class="bc-sep">›</span>
-            <span class="bc-current">{sucursal_nombre}</span>
-        </div>
-        """, unsafe_allow_html=True)
-
+        # Navegación
         col_bc, _ = st.columns([1, 5])
         with col_bc:
             if st.button("← Todas las sucursales", type="secondary", use_container_width=True):
