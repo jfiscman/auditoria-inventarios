@@ -27,243 +27,407 @@ from pathlib import Path
 st.set_page_config(
     page_title="Auditoría de Inventarios",
     page_icon="📦",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="collapsed",
 )
 
 # ─── Estilo personalizado (light mode, cream bg) ───
 st.markdown("""
 <style>
+    /* ── Global ── */
     .stApp { background-color: #f7f6f3; }
     .main > div { background-color: #f7f6f3; }
-    div[data-testid="stMetric"],
-    div.stAlert, div.stInfo, div.stSuccess,
-    div.stWarning, div.stError,
-    .stTabs [data-baseweb="tab-panel"] {
-        background-color: #ffffff;
-        border-radius: 12px;
-        padding: 16px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+
+    /* ── Cards white ── */
+    .card {
+        background: white;
+        border-radius: 14px;
+        padding: 24px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+        border: 1px solid #eae9e6;
+        margin-bottom: 16px;
     }
+    .card-flat {
+        background: white;
+        border-radius: 12px;
+        padding: 16px 20px;
+        box-shadow: none;
+        border: 1px solid #eae9e6;
+        margin-bottom: 8px;
+    }
+
+    /* ── Metrics ── */
     [data-testid="stMetric"] {
         background: white;
         border-radius: 12px;
-        padding: 20px 16px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        padding: 18px 14px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+        border: 1px solid #eae9e6;
     }
     [data-testid="stMetric"] label {
         color: #6b7280;
-        font-size: 0.85rem;
-        font-weight: 500;
+        font-size: 0.8rem;
+        font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: 0.03em;
+        letter-spacing: 0.04em;
     }
     [data-testid="stMetric"] [data-testid="stMetricValue"] {
         color: #111827;
-        font-size: 1.8rem;
+        font-size: 1.6rem;
         font-weight: 700;
     }
     [data-testid="stMetric"] [data-testid="stMetricDelta"] {
-        font-size: 0.85rem;
+        font-size: 0.82rem;
     }
-    .stButton > button {
-        background-color: #4f46e5;
+
+    /* ── Buttons: primary (indigo) ── */
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
         color: white;
         border: none;
-        border-radius: 8px;
-        padding: 0.5rem 2rem;
+        border-radius: 10px;
+        padding: 0.55rem 1.8rem;
         font-weight: 600;
+        font-size: 0.95rem;
+        transition: all 0.2s;
+        box-shadow: 0 2px 8px rgba(79,70,229,0.18);
+    }
+    .stButton > button[kind="primary"]:hover {
+        box-shadow: 0 4px 16px rgba(79,70,229,0.30);
+        transform: translateY(-1px);
+        color: white;
+    }
+    .stButton > button[kind="primary"]:active {
+        transform: translateY(0);
+    }
+
+    /* ── Buttons: secondary (outline) ── */
+    .stButton > button[kind="secondary"] {
+        background: transparent;
+        color: #4f46e5;
+        border: 1.5px solid #c7d2fe;
+        border-radius: 10px;
+        padding: 0.45rem 1.4rem;
+        font-weight: 600;
+        font-size: 0.88rem;
         transition: all 0.15s;
     }
-    .stButton > button:hover {
-        background-color: #4338ca;
-        color: white;
-        box-shadow: 0 2px 8px rgba(79,70,229,0.25);
-    }
-    .stButton > button[data-secondary="true"] {
-        background-color: transparent;
-        color: #4f46e5;
-        border: 1px solid #d1d5db;
-    }
-    .stButton > button[data-secondary="true"]:hover {
+    .stButton > button[kind="secondary"]:hover {
         border-color: #4f46e5;
+        background: #eef2ff;
+        color: #4338ca;
     }
+
+    /* ── Buttons: tertiary (ghost) ── */
+    .stButton > button[kind="tertiary"] {
+        background: transparent;
+        color: #6b7280;
+        border: none;
+        border-radius: 8px;
+        padding: 0.35rem 1rem;
+        font-weight: 500;
+        font-size: 0.85rem;
+        transition: all 0.15s;
+    }
+    .stButton > button[kind="tertiary"]:hover {
+        background: #f3f4f6;
+        color: #111827;
+    }
+
+    /* ── Danger buttons ── */
+    .btn-danger-row button {
+        background: transparent !important;
+        color: #ef4444 !important;
+        border: 1.5px solid #fecaca !important;
+        border-radius: 10px !important;
+        font-weight: 600 !important;
+        transition: all 0.15s !important;
+    }
+    .btn-danger-row button:hover {
+        background: #fef2f2 !important;
+        border-color: #ef4444 !important;
+    }
+
+    /* ── File Uploader ── */
     [data-testid="stFileUploader"] {
         background: white;
-        border-radius: 12px;
-        padding: 8px;
-        border: 2px dashed #e2e1dd;
-        transition: border-color 0.2s;
+        border-radius: 14px;
+        padding: 12px;
+        border: 2px dashed #d4d2cc;
+        transition: all 0.2s;
     }
     [data-testid="stFileUploader"]:hover {
         border-color: #4f46e5;
+        background: #faf9ff;
     }
+
+    /* ── Headings ── */
     h1, h2, h3 { color: #111827; }
-    h1 { font-size: 1.8rem; font-weight: 700; margin-bottom: 0.2rem; }
-    h2 { font-size: 1.3rem; font-weight: 600; margin-top: 1.5rem; }
-    .stTabs [data-baseweb="tab"] { font-weight: 500; color: #6b7280; }
-    .stTabs [aria-selected="true"] { color: #4f46e5; font-weight: 600; }
+    h1 { font-size: 1.6rem; font-weight: 800; margin-bottom: 0.1rem; }
+    h2 { font-size: 1.2rem; font-weight: 700; margin-top: 1.2rem; }
+    h3 { font-size: 1.05rem; font-weight: 600; margin-top: 1rem; }
+
+    /* ── Tabs ── */
+    .stTabs [data-baseweb="tab"] {
+        font-weight: 500;
+        color: #9ca3af;
+        font-size: 0.95rem;
+        padding: 8px 20px;
+        border-radius: 10px 10px 0 0;
+        transition: color 0.15s;
+    }
+    .stTabs [aria-selected="true"] {
+        color: #4f46e5;
+        font-weight: 700;
+    }
+    .stTabs [data-baseweb="tab"]:hover:not([aria-selected="true"]) {
+        color: #6b7280;
+    }
+
+    /* ── DataFrames ── */
     [data-testid="stDataFrame"] {
         background: white;
         border-radius: 12px;
         padding: 4px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        border: 1px solid #eae9e6;
     }
-    hr { border-color: #e2e1dd; margin: 1.5rem 0; }
-    .footer-badge {
-        text-align: center;
+
+    /* ── Expanders ── */
+    div[data-testid="stExpander"] {
+        background: white;
+        border-radius: 12px;
+        border: 1px solid #eae9e6;
+    }
+
+    /* ── Alerts ── */
+    div.stAlert { border-radius: 12px; }
+
+    /* ── HR ── */
+    hr { border-color: #e8e7e4; margin: 1.2rem 0; }
+
+    /* ── Breadcrumb nav ── */
+    .breadcrumb {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.88rem;
         color: #9ca3af;
-        font-size: 0.75rem;
-        margin-top: 3rem;
-        padding-top: 1rem;
-        border-top: 1px solid #e2e1dd;
+        margin-bottom: 16px;
     }
-    section[data-testid="stSidebar"] {
-        background-color: #faf9f7;
-        border-right: 1px solid #e2e1dd;
+    .breadcrumb a, .breadcrumb .bc-link {
+        color: #4f46e5;
+        cursor: pointer;
+        font-weight: 500;
+        text-decoration: none;
+        transition: color 0.15s;
     }
-    section[data-testid="stSidebar"] .stMarkdown { color: #374151; }
-    /* Sucursal cards */
+    .breadcrumb a:hover, .breadcrumb .bc-link:hover {
+        color: #4338ca;
+        text-decoration: underline;
+    }
+    .breadcrumb .bc-sep { color: #d1d5db; }
+    .breadcrumb .bc-current { color: #111827; font-weight: 600; }
+
+    /* ── Veredicto hero ── */
+    .veredicto-hero {
+        background: white;
+        border-radius: 16px;
+        padding: 28px 32px;
+        border-left: 6px solid;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        margin-bottom: 24px;
+    }
+    .veredicto-hero .v-icon {
+        font-size: 2.2rem;
+        margin-right: 12px;
+    }
+    .veredicto-hero .v-title {
+        font-size: 1.5rem;
+        font-weight: 800;
+    }
+    .veredicto-hero .v-sub {
+        color: #6b7280;
+        font-size: 0.95rem;
+        margin-top: 4px;
+    }
+    .veredicto-hero .v-id {
+        float: right;
+        color: #9ca3af;
+        font-size: 0.82rem;
+        font-weight: 500;
+    }
+
+    /* ── Sucursal cards ── */
     .sucursal-card {
         background: white;
-        border-radius: 14px;
-        padding: 20px;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-        transition: all 0.15s;
+        border-radius: 16px;
+        padding: 22px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+        border: 1px solid #eae9e6;
         cursor: pointer;
-        border: 1px solid #e8e7e4;
+        transition: all 0.2s;
         height: 100%;
         display: flex;
         flex-direction: column;
     }
     .sucursal-card:hover {
-        box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-        border-color: #c7c5c0;
-        transform: translateY(-1px);
+        box-shadow: 0 6px 24px rgba(0,0,0,0.08);
+        border-color: #c7d2fe;
+        transform: translateY(-2px);
     }
-    .sucursal-card .nombre {
-        font-size: 1.1rem;
-        font-weight: 700;
-        color: #111827;
-        margin-bottom: 6px;
+    .sucursal-card .sc-header {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 10px;
+        margin-bottom: 4px;
     }
-    .sucursal-card .nombre .badge-count {
-        background: #4f46e5;
-        color: white;
-        font-size: 0.75rem;
-        font-weight: 600;
-        padding: 1px 10px;
-        border-radius: 20px;
-    }
-    .sucursal-card .meta {
-        color: #9ca3af;
-        font-size: 0.82rem;
-        margin-bottom: 10px;
-    }
-    .sucursal-card .stats-row {
+    .sucursal-card .sc-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
         display: flex;
-        gap: 16px;
-        margin-top: auto;
-        padding-top: 10px;
-        border-top: 1px solid #f0efec;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+        font-weight: 700;
+        flex-shrink: 0;
     }
-    .sucursal-card .stat-item {
-        text-align: center;
+    .sucursal-card .sc-icon.green { background: #dcfce7; color: #16a34a; }
+    .sucursal-card .sc-icon.yellow { background: #fef3c7; color: #d97706; }
+    .sucursal-card .sc-icon.red { background: #fee2e2; color: #dc2626; }
+    .sucursal-card .sc-name {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: #111827;
         flex: 1;
     }
-    .sucursal-card .stat-item .num {
-        font-size: 1.2rem;
+    .sucursal-card .sc-badge {
+        background: #4f46e5;
+        color: white;
+        font-size: 0.72rem;
+        font-weight: 700;
+        padding: 2px 10px;
+        border-radius: 20px;
+    }
+    .sucursal-card .sc-meta {
+        color: #9ca3af;
+        font-size: 0.8rem;
+        margin-bottom: 12px;
+        padding-left: 46px;
+    }
+    .sucursal-card .sc-stats {
+        display: flex;
+        gap: 8px;
+        margin-top: auto;
+        padding-top: 12px;
+        border-top: 1px solid #f0efec;
+    }
+    .sucursal-card .sc-stat {
+        text-align: center;
+        flex: 1;
+        padding: 4px 0;
+    }
+    .sucursal-card .sc-stat .val {
+        font-size: 1.15rem;
         font-weight: 700;
         color: #111827;
     }
-    .sucursal-card .stat-item .label {
-        font-size: 0.7rem;
+    .sucursal-card .sc-stat .lbl {
+        font-size: 0.65rem;
         color: #9ca3af;
         text-transform: uppercase;
-        letter-spacing: 0.03em;
+        letter-spacing: 0.04em;
+        font-weight: 600;
     }
-    .sucursal-card .stat-item .num.aprobada { color: #16a34a; }
-    .sucursal-card .stat-item .num.observada { color: #d97706; }
-    .sucursal-card .stat-item .num.rechazada { color: #dc2626; }
-    /* Timeline */
+    .sucursal-card .sc-stat .val.ok { color: #16a34a; }
+    .sucursal-card .sc-stat .val.warn { color: #d97706; }
+    .sucursal-card .sc-stat .val.bad { color: #dc2626; }
+
+    /* ── Timeline items ── */
     .timeline-item {
         background: white;
         border-radius: 12px;
         padding: 16px 20px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-        margin-bottom: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        border: 1px solid #eae9e6;
+        margin-bottom: 10px;
         border-left: 4px solid #d1d5db;
-        transition: box-shadow 0.15s;
+        transition: all 0.15s;
     }
     .timeline-item:hover {
-        box-shadow: 0 3px 12px rgba(0,0,0,0.08);
+        box-shadow: 0 3px 12px rgba(0,0,0,0.07);
     }
     .timeline-item.aprobada { border-left-color: #16a34a; }
     .timeline-item.observada { border-left-color: #d97706; }
     .timeline-item.rechazada { border-left-color: #dc2626; }
-    .timeline-item .tl-header {
+    .tl-header { display: flex; justify-content: space-between; align-items: center; }
+    .tl-fecha { color: #9ca3af; font-size: 0.82rem; }
+    .tl-veredicto { font-weight: 700; font-size: 0.9rem; }
+    .tl-stats { color: #6b7280; font-size: 0.85rem; margin-top: 4px; }
+
+    /* ── Action bar ── */
+    .action-bar {
         display: flex;
-        justify-content: space-between;
+        gap: 8px;
+        flex-wrap: wrap;
         align-items: center;
     }
-    .timeline-item .tl-fecha {
+
+    /* ── Download buttons ── */
+    .stDownloadButton > button {
+        background: white !important;
+        color: #4f46e5 !important;
+        border: 1.5px solid #c7d2fe !important;
+        border-radius: 10px !important;
+        font-weight: 600 !important;
+        font-size: 0.88rem !important;
+        transition: all 0.15s !important;
+    }
+    .stDownloadButton > button:hover {
+        background: #eef2ff !important;
+        border-color: #4f46e5 !important;
+        box-shadow: 0 2px 8px rgba(79,70,229,0.12) !important;
+    }
+
+    /* ── Sidebar ── */
+    section[data-testid="stSidebar"] {
+        background: #faf9f7;
+        border-right: 1px solid #e8e7e4;
+    }
+    section[data-testid="stSidebar"] .stMarkdown { color: #374151; }
+
+    /* ── Footer ── */
+    .footer-badge {
+        text-align: center;
         color: #9ca3af;
-        font-size: 0.82rem;
+        font-size: 0.75rem;
+        margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px solid #e2e1dd;
     }
-    .timeline-item .tl-veredicto {
-        font-weight: 600;
-        font-size: 0.9rem;
-    }
-    .timeline-item .tl-stats {
+
+    /* ── Section labels ── */
+    .section-label {
         color: #6b7280;
-        font-size: 0.85rem;
-        margin-top: 4px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 8px;
     }
-    .timeline-item .tl-actions {
-        display: flex;
-        gap: 6px;
-        margin-top: 8px;
+
+    /* ── Pill tag ── */
+    .pill {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 20px;
+        font-size: 0.78rem;
+        font-weight: 600;
     }
-    div[data-testid="stExpander"] {
-        background: white;
-        border-radius: 12px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-        border: none;
-    }
-    .historial-card {
-        background: white;
-        border-radius: 12px;
-        padding: 16px 20px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-        margin-bottom: 10px;
-        cursor: pointer;
-        transition: box-shadow 0.15s;
-        border-left: 4px solid transparent;
-    }
-    .historial-card:hover {
-        box-shadow: 0 3px 12px rgba(0,0,0,0.1);
-    }
-    .historial-card.aprobada { border-left-color: #16a34a; }
-    .historial-card.observada { border-left-color: #d97706; }
-    .historial-card.rechazada { border-left-color: #dc2626; }
-    .historial-fecha { color: #9ca3af; font-size: 0.82rem; }
-    .historial-sucursal { font-weight: 600; color: #111827; font-size: 1rem; }
-    .historial-stats { color: #6b7280; font-size: 0.85rem; }
-    .delete-btn {
-        background: none;
-        border: none;
-        color: #dc2626;
-        cursor: pointer;
-        font-size: 0.85rem;
-        padding: 4px 8px;
-        border-radius: 6px;
-    }
-    .delete-btn:hover {
-        background: #fef2f2;
-    }
+    .pill-green { background: #dcfce7; color: #16a34a; }
+    .pill-yellow { background: #fef3c7; color: #d97706; }
+    .pill-red { background: #fee2e2; color: #dc2626; }
+    .pill-gray { background: #f3f4f6; color: #6b7280; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -403,50 +567,8 @@ def guardar_auditoria(resultado: dict, sucursal: str,
     return audit_id
 
 
-def listar_auditorias(limit: int = 50, sucursal_filtro: str = "",
-                      veredicto_filtro: str = "") -> list:
-    """Devuelve lista de auditorías con filtros opcionales."""
-    conn = get_db()
-    query = "SELECT * FROM auditorias"
-    params = []
-    condiciones = []
-    if sucursal_filtro:
-        condiciones.append("sucursal LIKE ?")
-        params.append(f"%{sucursal_filtro}%")
-    if veredicto_filtro:
-        condiciones.append("veredicto = ?")
-        params.append(veredicto_filtro)
-    if condiciones:
-        query += " WHERE " + " AND ".join(condiciones)
-    query += " ORDER BY fecha DESC LIMIT ?"
-    params.append(limit)
-    rows = conn.execute(query, params).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-def obtener_auditoria(audit_id: int) -> dict:
-    """Devuelve una auditoría completa con sus diferencias."""
-    conn = get_db()
-    audit = conn.execute(
-        "SELECT * FROM auditorias WHERE id = ?", (audit_id,)
-    ).fetchone()
-    if not audit:
-        conn.close()
-        return None
-    diffs = conn.execute(
-        "SELECT * FROM diferencias WHERE audit_id = ? ORDER BY tipo, sku",
-        (audit_id,)
-    ).fetchall()
-    conn.close()
-    return {
-        'auditoria': dict(audit),
-        'diferencias': [dict(d) for d in diffs],
-    }
-
-
 def eliminar_auditoria(audit_id: int):
-    """Elimina una auditoría y sus diferencias (cascade)."""
+    """Elimina una auditoría y sus diferencias asociadas."""
     conn = get_db()
     conn.execute("DELETE FROM diferencias WHERE audit_id = ?", (audit_id,))
     conn.execute("DELETE FROM auditorias WHERE id = ?", (audit_id,))
@@ -454,74 +576,79 @@ def eliminar_auditoria(audit_id: int):
     conn.close()
 
 
+def obtener_auditoria(audit_id: int):
+    """Devuelve auditoría + diferencias por ID."""
+    conn = get_db()
+    a = conn.execute("SELECT * FROM auditorias WHERE id = ?", (audit_id,)).fetchone()
+    if a is None:
+        conn.close()
+        return None
+    diffs = conn.execute(
+        "SELECT * FROM diferencias WHERE audit_id = ? ORDER BY tipo, sku",
+        (audit_id,),
+    ).fetchall()
+    conn.close()
+    return {'auditoria': dict(a), 'diferencias': [dict(d) for d in diffs]}
+
+
+@st.cache_data
+def listar_auditorias(limit: int = 50, offset: int = 0) -> list:
+    """Lista las últimas N auditorías."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM auditorias ORDER BY fecha DESC LIMIT ? OFFSET ?",
+        (limit, offset),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@st.cache_data
 def estadisticas_generales() -> dict:
-    """Devuelve estadísticas generales de todas las auditorías."""
+    """Resumen global de todas las auditorías."""
     conn = get_db()
     r = conn.execute("""
-        SELECT
-            COUNT(*) as total_auditorias,
-            COALESCE(SUM(total_sku), 0) as total_sku_auditados,
-            COALESCE(SUM(diferencias), 0) as total_diferencias,
-            COALESCE(AVG(pct_coincidencia), 0) as promedio_coincidencia,
-            COUNT(CASE WHEN veredicto = 'APROBADA' THEN 1 END) as aprobadas,
-            COUNT(CASE WHEN veredicto = 'OBSERVADA' THEN 1 END) as observadas,
-            COUNT(CASE WHEN veredicto = 'RECHAZADA' THEN 1 END) as rechazadas,
-            COUNT(DISTINCT sucursal) as sucursales_distintas
+        SELECT COUNT(*) as total_auditorias,
+               COALESCE(SUM(total_sku), 0) as total_sku_auditados,
+               COALESCE(SUM(CASE WHEN veredicto='APROBADA' THEN 1 ELSE 0 END), 0) as aprobadas,
+               COALESCE(SUM(CASE WHEN veredicto='OBSERVADA' THEN 1 ELSE 0 END), 0) as observadas,
+               COALESCE(SUM(CASE WHEN veredicto='RECHAZADA' THEN 1 ELSE 0 END), 0) as rechazadas,
+               COALESCE(AVG(pct_coincidencia), 0) as promedio_coincidencia
         FROM auditorias
     """).fetchone()
     conn.close()
     return dict(r)
 
 
+@st.cache_data
 def listar_sucursales() -> list:
     """Devuelve lista de sucursales con estadísticas resumidas."""
     conn = get_db()
     rows = conn.execute("""
-        SELECT
-            sucursal,
-            COUNT(*) as total_auditorias,
-            MAX(fecha) as ultima_fecha,
-            ROUND(AVG(pct_coincidencia), 1) as promedio_coincidencia,
-            MIN(pct_coincidencia) as peor_coincidencia,
-            SUM(CASE WHEN veredicto = 'APROBADA' THEN 1 ELSE 0 END) as aprobadas,
-            SUM(CASE WHEN veredicto = 'OBSERVADA' THEN 1 ELSE 0 END) as observadas,
-            SUM(CASE WHEN veredicto = 'RECHAZADA' THEN 1 ELSE 0 END) as rechazadas
+        SELECT sucursal,
+               COUNT(*) as total_auditorias,
+               ROUND(AVG(pct_coincidencia), 1) as promedio_coincidencia,
+               MAX(fecha) as ultima_fecha,
+               SUM(CASE WHEN veredicto='APROBADA' THEN 1 ELSE 0 END) as aprobadas,
+               SUM(CASE WHEN veredicto='OBSERVADA' THEN 1 ELSE 0 END) as observadas,
+               SUM(CASE WHEN veredicto='RECHAZADA' THEN 1 ELSE 0 END) as rechazadas
         FROM auditorias
         WHERE sucursal != ''
         GROUP BY sucursal
-        ORDER BY ultima_fecha DESC
+        ORDER BY promedio_coincidencia DESC
     """).fetchall()
-    # También incluir las que no tienen sucursal
-    orphans = conn.execute("""
-        SELECT
-            '(Sin sucursal)' as sucursal,
-            COUNT(*) as total_auditorias,
-            MAX(fecha) as ultima_fecha,
-            ROUND(AVG(pct_coincidencia), 1) as promedio_coincidencia,
-            MIN(pct_coincidencia) as peor_coincidencia,
-            SUM(CASE WHEN veredicto = 'APROBADA' THEN 1 ELSE 0 END) as aprobadas,
-            SUM(CASE WHEN veredicto = 'OBSERVADA' THEN 1 ELSE 0 END) as observadas,
-            SUM(CASE WHEN veredicto = 'RECHAZADA' THEN 1 ELSE 0 END) as rechazadas
-        FROM auditorias
-        WHERE sucursal = ''
-    """).fetchone()
     conn.close()
-    resultado = [dict(r) for r in rows]
-    if orphans and orphans['total_auditorias'] > 0:
-        resultado.append(dict(orphans))
-    return resultado
+    return [dict(r) for r in rows]
 
 
+@st.cache_data
 def auditorias_por_sucursal(sucursal: str) -> list:
-    """Devuelve todas las auditorías de una sucursal, ordenadas por fecha."""
-    if sucursal == '(Sin sucursal)':
-        sucursal = ''
+    """Lista auditorías de una sucursal, las más recientes primero."""
     conn = get_db()
-    rows = conn.execute("""
-        SELECT * FROM auditorias
-        WHERE sucursal = ?
-        ORDER BY fecha DESC
-    """, (sucursal,)).fetchall()
+    rows = conn.execute(
+        "SELECT * FROM auditorias WHERE sucursal = ? ORDER BY fecha DESC",
+        (sucursal,),
+    ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -534,7 +661,7 @@ def sembrar_datos_ejemplo():
         conn.close()
         return
 
-    import random, io
+    import random
     random.seed(42)
     from datetime import timedelta
 
@@ -562,7 +689,6 @@ def sembrar_datos_ejemplo():
             audit_date = base_date + timedelta(days=i * random.randint(15, 30))
             fecha_str = audit_date.isoformat()
 
-            # Generar stocks
             fisico_dict = {}
             central_dict = {}
             for sku in todos_productos:
@@ -575,7 +701,6 @@ def sembrar_datos_ejemplo():
                 central_dict[sku] = q_central
                 fisico_dict[sku] = q_fisico
 
-            # ── Comparación inline (sin depender de ejecutar_auditoria) ──
             todos_skus = sorted(set(fisico_dict) | set(central_dict))
             coinc, falt, sob, sf, sc = [], [], [], [], []
             total_f, total_c = 0, 0
@@ -586,7 +711,6 @@ def sembrar_datos_ejemplo():
                 total_f += qf
                 total_c += qc
                 diff = qf - qc
-
                 if sku not in central_dict:
                     sf.append((sku, qf, 0, qf))
                 elif sku not in fisico_dict:
@@ -608,7 +732,6 @@ def sembrar_datos_ejemplo():
             else:
                 veredicto = 'RECHAZADA'
 
-            # Guardar auditoría
             cur = conn.execute("""
                 INSERT INTO auditorias
                     (fecha, sucursal, archivo_fisico, archivo_central,
@@ -636,7 +759,6 @@ def sembrar_datos_ejemplo():
             ))
             audit_id = cur.lastrowid
 
-            # Guardar diferencias
             rows = []
             for sku, fis, cen, dif in falt:
                 rows.append((audit_id, sku, 'FALTANTE', fis, cen, dif))
@@ -839,46 +961,28 @@ def generar_reporte_txt(resultado: dict, sucursal: str = "") -> str:
 
 
 def reconstruir_resultado_desde_db(audit: dict, diffs: list) -> dict:
-    """Reconstruye el dict 'resultado' desde los datos de la DB para mostrar en UI."""
+    """Reconstruye el dict 'resultado' desde los datos de la DB."""
     s = audit
     pct = s['pct_coincidencia']
     if pct >= 95:
-        icono = "✅"
-        texto = "APROBADA"
-        msg = "Sin diferencias significativas."
+        icono, texto, msg = "✅", "APROBADA", "Sin diferencias significativas."
     elif pct >= 80:
-        icono = "⚠️"
-        texto = "OBSERVADA"
-        msg = "Revisar diferencias detectadas."
+        icono, texto, msg = "⚠️", "OBSERVADA", "Revisar diferencias detectadas."
     else:
-        icono = "🔴"
-        texto = "RECHAZADA"
-        msg = "Requiere investigación."
+        icono, texto, msg = "🔴", "RECHAZADA", "Requiere investigación."
 
     stats = {
-        'total_sku': s['total_sku'],
-        'coinciden': s['coinciden'],
-        'diferencias': s['diferencias'],
-        'sobrantes': s['sobrantes'],
-        'faltantes': s['faltantes'],
-        'solo_fisico': s['solo_fisico'],
-        'solo_central': s['solo_central'],
-        'total_fisico': s['total_unid_fis'],
-        'total_central': s['total_unid_cen'],
-        'diferencia_neta': s['diferencia_neta'],
-        'pct_coincidencia': pct,
-        'veredicto_icono': icono,
-        'veredicto': texto,
-        'veredicto_msg': msg,
+        'total_sku': s['total_sku'], 'coinciden': s['coinciden'],
+        'diferencias': s['diferencias'], 'sobrantes': s['sobrantes'],
+        'faltantes': s['faltantes'], 'solo_fisico': s['solo_fisico'],
+        'solo_central': s['solo_central'], 'total_fisico': s['total_unid_fis'],
+        'total_central': s['total_unid_cen'], 'diferencia_neta': s['diferencia_neta'],
+        'pct_coincidencia': pct, 'veredicto_icono': icono,
+        'veredicto': texto, 'veredicto_msg': msg,
     }
 
-    tablas = {
-        'coinciden': pd.DataFrame(),
-        'sobrantes': pd.DataFrame(),
-        'faltantes': pd.DataFrame(),
-        'solo_fisico': pd.DataFrame(),
-        'solo_central': pd.DataFrame(),
-    }
+    tablas = {k: pd.DataFrame() for k in
+              ['coinciden', 'sobrantes', 'faltantes', 'solo_fisico', 'solo_central']}
 
     coic, sob, falt, sf, sc = [], [], [], [], []
     for d in diffs:
@@ -896,16 +1000,11 @@ def reconstruir_resultado_desde_db(audit: dict, diffs: list) -> dict:
         elif t == 'SOLO_CENTRAL':
             sc.append({'SKU': d['sku'], 'Cantidad Central': d['cantidad_central']})
 
-    if coic:
-        tablas['coinciden'] = pd.DataFrame(coic)
-    if sob:
-        tablas['sobrantes'] = pd.DataFrame(sob)
-    if falt:
-        tablas['faltantes'] = pd.DataFrame(falt)
-    if sf:
-        tablas['solo_fisico'] = pd.DataFrame(sf)
-    if sc:
-        tablas['solo_central'] = pd.DataFrame(sc)
+    if coic: tablas['coinciden'] = pd.DataFrame(coic)
+    if sob: tablas['sobrantes'] = pd.DataFrame(sob)
+    if falt: tablas['faltantes'] = pd.DataFrame(falt)
+    if sf: tablas['solo_fisico'] = pd.DataFrame(sf)
+    if sc: tablas['solo_central'] = pd.DataFrame(sc)
 
     return {'stats': stats, 'tablas': tablas}
 
@@ -943,20 +1042,36 @@ def generar_ejemplo_central() -> str:
 with st.sidebar:
     st.markdown("### 🧾 ¿Cómo funciona?")
     st.markdown("""
-1. **Subí los dos archivos CSV** — el conteo físico de la sucursal y el stock del sistema central.
-2. **Confirmá las columnas** — SKU y cantidad se detectan solas, pero podés cambiarlas.
+1. **Subí los dos archivos CSV** — el conteo físico y el stock central.
+2. **Confirmá las columnas** — SKU y cantidad se detectan solas.
 3. **Ejecutá la auditoría** — al instante ves el resultado.
 4. **Consultá el historial** — todas las auditorías quedan guardadas.
     """)
 
     st.markdown("---")
-    st.markdown("### 📥 Descargar ejemplos")
-    st.markdown(
-        "<p style='color: #6b7280; font-size: 0.85rem;'>"
-        "Probá la app con estos archivos de muestra:</p>",
-        unsafe_allow_html=True,
-    )
 
+    # Estadísticas generales
+    est = estadisticas_generales()
+    if est['total_auditorias'] > 0:
+        st.markdown("### 📊 Resumen global")
+        col_sg1, col_sg2 = st.columns(2)
+        with col_sg1:
+            st.metric("Auditorías", est['total_auditorias'])
+        with col_sg2:
+            st.metric("Promedio", f"{est['promedio_coincidencia']:.1f}%")
+        st.markdown(
+            f"<div style='font-size:0.85rem; color:#6b7280; text-align:center;'>"
+            f"✅ {est['aprobadas']} &nbsp;⚠️ {est['observadas']} &nbsp;🔴 {est['rechazadas']}"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.info("📭 Ejecutá una auditoría o cargá ejemplos.")
+
+    st.markdown("---")
+
+    # Descargar ejemplos
+    st.markdown('<div class="section-label">Descargar ejemplos</div>', unsafe_allow_html=True)
     col_e1, col_e2 = st.columns(2)
     with col_e1:
         st.download_button(
@@ -975,52 +1090,21 @@ with st.sidebar:
             use_container_width=True,
         )
 
-    st.markdown(
-        "<p style='color: #9ca3af; font-size: 0.78rem;'>"
-        "Los ejemplos ya tienen diferencias preparadas.</p>",
-        unsafe_allow_html=True,
-    )
-
     st.markdown("---")
 
-    # Estadísticas generales
-    est = estadisticas_generales()
-    if est['total_auditorias'] > 0:
-        st.markdown("### 📊 Estadísticas generales")
-        st.markdown(
-            f"<p style='color: #6b7280; font-size: 0.85rem;'>"
-            f"Auditorías: <b>{est['total_auditorias']}</b> &nbsp;·&nbsp; "
-            f"SKU auditados: <b>{est['total_sku_auditados']:,}</b><br>"
-            f"✅ {est['aprobadas']} · ⚠️ {est['observadas']} · 🔴 {est['rechazadas']}<br>"
-            f"Promedio: <b>{est['promedio_coincidencia']:.1f}%</b></p>",
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown("### 📭 Sin auditorías")
-        st.markdown(
-            "<p style='color: #6b7280; font-size: 0.85rem;'>"
-            "Ejecutá una desde la pestaña principal o cargá ejemplos.</p>",
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("---")
-
-    # Siempre mostrar opción de cargar ejemplos
-    st.markdown("### ⚙️ Mantenimiento")
-    col_m1, col_m2 = st.columns(2)
-    with col_m1:
-        if st.button("🎲 Cargar ejemplos", use_container_width=True):
-            sembrar_datos_ejemplo()
-            st.cache_data.clear()
-            st.rerun()
-    with col_m2:
-        if st.button("🔄 Refrescar", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
+    # Mantenimiento
+    st.markdown('<div class="section-label">Mantenimiento</div>', unsafe_allow_html=True)
+    if st.button("🎲 Cargar datos de ejemplo", use_container_width=True, type="secondary"):
+        sembrar_datos_ejemplo()
+        st.cache_data.clear()
+        st.rerun()
+    if st.button("🔄 Refrescar datos", use_container_width=True, type="tertiary"):
+        st.cache_data.clear()
+        st.rerun()
 
     st.markdown(
-        "<p style='color: #9ca3af; font-size: 0.8rem;'>"
-        "v2.0 — Con memoria SQLite</p>",
+        "<p style='color: #9ca3af; font-size: 0.72rem; text-align: center; margin-top: 16px;'>"
+        "v3.0 · Auditoría de Inventarios</p>",
         unsafe_allow_html=True,
     )
 
@@ -1060,14 +1144,14 @@ with tabs[0]:
     col1, col2 = st.columns(2)
     with col1:
         fisico_file = st.file_uploader(
-            "📋 **Conteo FÍSICO**",
+            "📋 Conteo FÍSICO",
             type=['csv', 'txt'],
             key="fisico_uploader",
             help="CSV con el conteo real de la sucursal (SKU + cantidad)",
         )
     with col2:
         central_file = st.file_uploader(
-            "💻 **Stock CENTRAL**",
+            "💻 Stock CENTRAL",
             type=['csv', 'txt'],
             key="central_uploader",
             help="CSV con el stock del sistema central (SKU + cantidad)",
@@ -1083,7 +1167,6 @@ with tabs[0]:
             "automáticamente."
         )
 
-        # Botones de ejemplo en pantalla principal
         st.markdown("### 📥 ¿No tenés archivos a mano?")
         st.markdown(
             "<p style='color: #6b7280;'>"
@@ -1132,18 +1215,18 @@ with tabs[0]:
 
     # Preview
     st.markdown("---")
-    st.markdown("### 📋 Vistazo de los datos")
+    st.markdown('<div class="section-label">Vistazo de los datos</div>', unsafe_allow_html=True)
 
     tab1, tab2 = st.tabs(["📋 Conteo Físico", "💻 Stock Central"])
     with tab1:
         st.dataframe(df_fisico.head(10), use_container_width=True, hide_index=True)
-        st.caption(f"{len(df_fisico)} filas • Columnas: {', '.join(df_fisico.columns)}")
+        st.caption(f"{len(df_fisico)} filas · Columnas: {', '.join(df_fisico.columns)}")
     with tab2:
         st.dataframe(df_central.head(10), use_container_width=True, hide_index=True)
-        st.caption(f"{len(df_central)} filas • Columnas: {', '.join(df_central.columns)}")
+        st.caption(f"{len(df_central)} filas · Columnas: {', '.join(df_central.columns)}")
 
     # Columnas mapping
-    st.markdown("### ⚙️ Columnas para la comparación")
+    st.markdown('<div class="section-label">Columnas para la comparación</div>', unsafe_allow_html=True)
     st.caption("Si la detección automática no es correcta, ajustalas manualmente.")
 
     col_a, col_b, col_c, col_d = st.columns(4)
@@ -1161,15 +1244,14 @@ with tabs[0]:
                               index=list(df_central.columns).index(qty_col_c))
 
     # Sucursal
-    st.markdown("### 🏪 Sucursal")
     sucursal = st.text_input(
-        "Nombre de la sucursal (opcional, para el reporte)",
+        "🏪 Sucursal (opcional, para el reporte)",
         placeholder="Ej: Sucursal Centro",
     )
 
     # ─── Botón ejecutar ───
-    st.markdown("---")
-    col_btn, _ = st.columns([1, 3])
+    st.markdown("")
+    col_btn, _ = st.columns([2, 5])
     with col_btn:
         ejecutar = st.button("▶️  Ejecutar Auditoría", type="primary", use_container_width=True)
 
@@ -1194,39 +1276,34 @@ with tabs[0]:
         csv_fisico_raw, csv_central_raw,
     )
 
-    # Limpiar caché para que el historial se refresque
     st.cache_data.clear()
 
-    # ─── VEREDICTO ───
-    ver_color = {"APROBADA": "green", "OBSERVADA": "orange", "RECHAZADA": "red"}
-    vcolor = ver_color.get(s['veredicto'], "gray")
+    # ─── VEREDICTO HERO ───
+    ver_colors = {"APROBADA": "#16a34a", "OBSERVADA": "#d97706", "RECHAZADA": "#dc2626"}
+    vcolor = ver_colors.get(s['veredicto'], "gray")
+    pill_cls = {"APROBADA": "pill-green", "OBSERVADA": "pill-yellow", "RECHAZADA": "pill-red"}
     st.markdown(f"""
-    <div style="background: white; border-radius: 12px; padding: 20px;
-                border-left: 5px solid {vcolor};
-                box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 20px;">
-        <span style="font-size: 1.5rem;">{s['veredicto_icono']}</span>
-        <span style="font-size: 1.3rem; font-weight: 700; color: {vcolor};">
-            {s['veredicto']}
-        </span>
-        <span style="color: #6b7280; margin-left: 8px;">— {s['veredicto_msg']}</span>
-        <span style="float: right; color: #9ca3af; font-size: 0.85rem;">
-            ID #{audit_id} · Guardado
-        </span>
+    <div class="veredicto-hero" style="border-left-color: {vcolor};">
+        <span class="v-id">ID #{audit_id} · Guardado</span>
+        <span class="v-icon">{s['veredicto_icono']}</span>
+        <span class="v-title" style="color: {vcolor};">{s['veredicto']}</span>
+        <span class="pill {pill_cls.get(s['veredicto'], '')}">{s['pct_coincidencia']}%</span>
+        <div class="v-sub">{s['veredicto_msg']}</div>
     </div>
     """, unsafe_allow_html=True)
 
     # ─── Métricas principales ───
-    st.markdown("### 📊 Resumen")
+    st.markdown('<div class="section-label">Resumen</div>', unsafe_allow_html=True)
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("SKU Analizados", s['total_sku'])
     m2.metric("Coinciden", f"{s['coinciden']} ({s['pct_coincidencia']}%)")
     m3.metric("Con Diferencias", s['diferencias'],
               delta=f"+{s['sobrantes']} sobr / -{s['faltantes']} falt")
-    m4.metric("Diferencia Neta (uds)", s['diferencia_neta'])
+    m4.metric("Diferencia Neta", f"{s['diferencia_neta']:+,} uds")
 
     m5, m6, m7, m8 = st.columns(4)
-    m5.metric("Total Unid. Físico", f"{s['total_fisico']:,}")
-    m6.metric("Total Unid. Central", f"{s['total_central']:,}")
+    m5.metric("Unid. Físico", f"{s['total_fisico']:,}")
+    m6.metric("Unid. Central", f"{s['total_central']:,}")
     m7.metric("Solo en Físico", s['solo_fisico'])
     m8.metric("Solo en Central", s['solo_central'])
 
@@ -1262,7 +1339,7 @@ with tabs[0]:
         st.dataframe(tabs_res['solo_central'], use_container_width=True, hide_index=True)
 
     if not tabs_res['coinciden'].empty:
-        with st.expander(f"✅ Productos que coinciden ({len(tabs_res['coinciden'])}):"):
+        with st.expander(f"✅ Productos que coinciden ({len(tabs_res['coinciden'])})"):
             st.dataframe(tabs_res['coinciden'], use_container_width=True, hide_index=True)
 
     # ─── Métricas avanzadas ───
@@ -1273,20 +1350,11 @@ with tabs[0]:
 
     # Construir df_unificado para métricas
     df_metricas = pd.DataFrame()
-    for tipo, cols in [
-        ('COINCIDE', ['SKU', 'Cantidad', 'Cantidad', 0]),
-        ('FALTANTE', ['SKU', 'Físico', 'Central', 'Diferencia']),
-        ('SOBRANTE', ['SKU', 'Físico', 'Central', 'Diferencia']),
-        ('SOLO_FISICO', ['SKU', 'Cantidad Físico', 0, 'Cantidad Físico']),
-        ('SOLO_CENTRAL', ['SKU', 0, 'Cantidad Central', 0]),
-    ]:
-        tdf = resultado['tablas'].get({
-            'COINCIDE': 'coinciden',
-            'FALTANTE': 'faltantes',
-            'SOBRANTE': 'sobrantes',
-            'SOLO_FISICO': 'solo_fisico',
-            'SOLO_CENTRAL': 'solo_central',
-        }[tipo], pd.DataFrame())
+    for tipo in ['COINCIDE', 'FALTANTE', 'SOBRANTE', 'SOLO_FISICO', 'SOLO_CENTRAL']:
+        key = {'COINCIDE': 'coinciden', 'FALTANTE': 'faltantes',
+               'SOBRANTE': 'sobrantes', 'SOLO_FISICO': 'solo_fisico',
+               'SOLO_CENTRAL': 'solo_central'}[tipo]
+        tdf = resultado['tablas'].get(key, pd.DataFrame())
         if not tdf.empty:
             tdf = tdf.copy()
             tdf['Tipo'] = tipo
@@ -1302,28 +1370,19 @@ with tabs[0]:
                 tdf['Diferencia'] = -tdf['Cantidad Central']
                 tdf['Físico'] = 0
                 tdf['Central'] = tdf['Cantidad Central']
-            else:
-                # FALTANTE y SOBRANTE ya tienen Físico, Central, Diferencia
-                pass
             df_metricas = pd.concat([df_metricas, tdf], ignore_index=True)
 
     with tabs_metricas[0]:
         st.markdown("**Distribución de diferencias**")
 
         if not df_metricas.empty:
-            # Categorizar diferencias
             def cat_diff(d):
                 d = int(d)
-                if d == 0:
-                    return '0 (Coincide)'
-                elif abs(d) == 1:
-                    return '±1'
-                elif abs(d) <= 3:
-                    return '±2 a 3'
-                elif abs(d) <= 10:
-                    return '±4 a 10'
-                else:
-                    return '> ±10'
+                if d == 0: return '0 (Coincide)'
+                elif abs(d) == 1: return '±1'
+                elif abs(d) <= 3: return '±2 a 3'
+                elif abs(d) <= 10: return '±4 a 10'
+                else: return '> ±10'
 
             df_metricas['Categoría'] = df_metricas['Diferencia'].apply(cat_diff)
             dist = df_metricas['Categoría'].value_counts().reindex(
@@ -1334,20 +1393,15 @@ with tabs[0]:
             col_dist1, col_dist2 = st.columns([1, 1])
             with col_dist1:
                 st.bar_chart(dist)
-
             with col_dist2:
                 st.markdown("**Resumen por categoría**")
                 for cat, count in dist.items():
                     pct = count / len(df_metricas) * 100
                     icon = "✅" if cat == '0 (Coincide)' else "⚠️"
-                    st.markdown(
-                        f"{icon} **{cat}:** {count} productos ({pct:.1f}%)"
-                    )
+                    st.markdown(f"{icon} **{cat}:** {count} productos ({pct:.1f}%)")
 
-            st.caption(
-                "Productos con diferencia 0 = stock correcto. "
-                "Diferencias > ±10 requieren investigación urgente."
-            )
+            st.caption("Productos con diferencia 0 = stock correcto. "
+                       "Diferencias > ±10 requieren investigación urgente.")
 
     with tabs_metricas[1]:
         st.markdown("**Indicadores de precisión**")
@@ -1359,94 +1413,69 @@ with tabs[0]:
             total_unidades_fisico = df_metricas['Físico'].sum()
             total_unidades_central = df_metricas['Central'].sum()
 
-            # Inventory Accuracy Rate (count-based)
             iar_count = (correctos / total_items * 100) if total_items else 0
-            # Value-based accuracy
             iar_value = 100 - (abs(df_metricas['Diferencia']).sum() / max(total_unidades_central, 1) * 100)
             iar_value = max(0, min(100, iar_value))
 
             col_p1, col_p2, col_p3 = st.columns(3)
-            col_p1.metric(
-                "📊 Precisión (unidades)",
-                f"{iar_count:.1f}%",
-                help="Porcentaje de SKU que coinciden exactamente"
-            )
-            col_p2.metric(
-                "📦 Precisión (volumen)",
-                f"{iar_value:.1f}%",
-                help="Qué % del volumen total de stock está correcto"
-            )
-            col_p3.metric(
-                "🔢 Error promedio por SKU",
-                f"{abs(df_metricas['Diferencia']).mean():.1f} uds",
-                help="Promedio de unidades de error por producto"
-            )
+            col_p1.metric("📊 Precisión (SKU)", f"{iar_count:.1f}%",
+                          help="Porcentaje de SKU que coinciden exactamente")
+            col_p2.metric("📦 Precisión (volumen)", f"{iar_value:.1f}%",
+                          help="Qué % del volumen total de stock está correcto")
+            col_p3.metric("🔢 Error promedio", f"{abs(df_metricas['Diferencia']).mean():.1f} uds",
+                          help="Promedio de unidades de error por producto")
 
-            # Tabla resumen
             st.markdown("**Resumen de la auditoría**")
             resumen_data = {
                 'Indicador': [
-                    'Total SKU analizados',
-                    'SKU correctos',
-                    'SKU con diferencias',
-                    'Total unidades físicas',
-                    'Total unidades central',
+                    'Total SKU analizados', 'SKU correctos', 'SKU con diferencias',
+                    'Total unidades físicas', 'Total unidades central',
                     'Diferencia neta (uds)',
-                    'Tasa de precisión (SKU)',
-                    'Tasa de precisión (volumen)',
+                    'Tasa de precisión (SKU)', 'Tasa de precisión (volumen)',
                     'Error promedio por SKU',
                 ],
                 'Valor': [
-                    f'{total_items}',
-                    f'{correctos}',
-                    f'{incorrectos}',
-                    f'{total_unidades_fisico:,.0f}',
-                    f'{total_unidades_central:,.0f}',
+                    f'{total_items}', f'{correctos}', f'{incorrectos}',
+                    f'{total_unidades_fisico:,.0f}', f'{total_unidades_central:,.0f}',
                     f'{total_unidades_fisico - total_unidades_central:+,.0f}',
-                    f'{iar_count:.1f}%',
-                    f'{iar_value:.1f}%',
+                    f'{iar_count:.1f}%', f'{iar_value:.1f}%',
                     f'{abs(df_metricas["Diferencia"]).mean():.1f}',
                 ],
                 'Evaluación': [
                     '—',
                     '✅ Bueno' if iar_count >= 95 else '⚠️ Regular' if iar_count >= 80 else '🔴 Malo',
-                    '—',
-                    '—',
-                    '—',
-                    '✅ OK' if abs(total_unidades_fisico - total_unidades_central) < 10 else '⚠️ Revisar' if abs(total_unidades_fisico - total_unidades_central) < 50 else '🔴 Alta',
+                    '—', '—', '—',
+                    '✅ OK' if abs(total_unidades_fisico - total_unidades_central) < 10
+                    else '⚠️ Revisar' if abs(total_unidades_fisico - total_unidades_central) < 50
+                    else '🔴 Alta',
                     '✅ Bueno' if iar_count >= 95 else '⚠️ Regular' if iar_count >= 80 else '🔴 Malo',
                     '✅ Bueno' if iar_value >= 95 else '⚠️ Regular' if iar_value >= 80 else '🔴 Malo',
-                    '✅ Bajo' if abs(df_metricas['Diferencia']).mean() < 2 else '⚠️ Medio' if abs(df_metricas['Diferencia']).mean() < 5 else '🔴 Alto',
+                    '✅ Bajo' if abs(df_metricas['Diferencia']).mean() < 2
+                    else '⚠️ Medio' if abs(df_metricas['Diferencia']).mean() < 5
+                    else '🔴 Alto',
                 ],
             }
-            st.dataframe(
-                pd.DataFrame(resumen_data),
-                use_container_width=True, hide_index=True,
-            )
+            st.dataframe(pd.DataFrame(resumen_data), use_container_width=True, hide_index=True)
 
     with tabs_metricas[2]:
         st.markdown("**Productos con mayor impacto**")
 
         if not df_metricas.empty:
-            # Top faltantes (más unidades perdidas)
             top_falt = df_metricas[df_metricas['Diferencia'] < 0].copy()
             top_falt['Impacto'] = top_falt['Diferencia'].abs()
             top_falt = top_falt.nlargest(5, 'Impacto')[['SKU', 'Físico', 'Central', 'Diferencia', 'Impacto']]
 
-            # Top sobrantes (más unidades de más)
             top_sob = df_metricas[df_metricas['Diferencia'] > 0].copy()
             top_sob['Impacto'] = top_sob['Diferencia']
             top_sob = top_sob.nlargest(5, 'Impacto')[['SKU', 'Físico', 'Central', 'Diferencia', 'Impacto']]
 
             col_i1, col_i2 = st.columns(2)
-
             with col_i1:
                 st.markdown("**🔴 Top faltantes**")
                 if not top_falt.empty:
                     st.dataframe(top_falt, use_container_width=True, hide_index=True)
                 else:
                     st.success("No hay faltantes.")
-
             with col_i2:
                 st.markdown("**🟡 Top sobrantes**")
                 if not top_sob.empty:
@@ -1454,7 +1483,7 @@ with tabs[0]:
                 else:
                     st.success("No hay sobrantes.")
 
-            # Comparativa con histórico de la misma sucursal
+            # Comparativa con histórico
             if sucursal:
                 historial_suc = auditorias_por_sucursal(sucursal)
                 historial_suc = [h for h in historial_suc
@@ -1462,9 +1491,7 @@ with tabs[0]:
                 if len(historial_suc) >= 1:
                     st.markdown("---")
                     st.markdown("**📊 Comparativa con auditorías anteriores**")
-                    st.caption(
-                        f"Evolución histórica de la sucursal '{sucursal}'"
-                    )
+                    st.caption(f"Evolución histórica de la sucursal '{sucursal}'")
 
                     data_hist = []
                     for h in historial_suc:
@@ -1472,7 +1499,6 @@ with tabs[0]:
                             'Fecha': datetime.fromisoformat(h['fecha']).strftime('%d/%m'),
                             '% Coincidencia': h['pct_coincidencia'],
                         })
-                    # Agregar la actual
                     data_hist.append({
                         'Fecha': 'Actual',
                         '% Coincidencia': s['pct_coincidencia'],
@@ -1481,18 +1507,17 @@ with tabs[0]:
                     if len(df_hist) >= 2:
                         st.line_chart(df_hist.set_index('Fecha')['% Coincidencia'])
 
-                    # Comparar con el promedio histórico
                     prom_hist = sum(h['pct_coincidencia'] for h in historial_suc) / len(historial_suc)
                     diff_hist = s['pct_coincidencia'] - prom_hist
                     delta_str = f"+{diff_hist:.1f}%" if diff_hist > 0 else f"{diff_hist:.1f}%"
-                    delta_color = "green" if diff_hist >= 0 else "red"
+                    delta_color = "#16a34a" if diff_hist >= 0 else "#dc2626"
 
                     st.markdown(
-                        f"<p style='color: #6b7280;'>"
+                        f"<div style='color: #6b7280;'>"
                         f"Promedio histórico: <b>{prom_hist:.1f}%</b> &nbsp;·&nbsp; "
                         f"Actual: <b>{s['pct_coincidencia']}%</b> &nbsp;·&nbsp; "
                         f"<span style='color: {delta_color}; font-weight: 600;'>{delta_str}</span>"
-                        f"</p>",
+                        f"</div>",
                         unsafe_allow_html=True,
                     )
                 else:
@@ -1502,16 +1527,16 @@ with tabs[0]:
                         "para habilitar la comparativa histórica.")
 
     # ─── Exportación ───
+    st.markdown("---")
     st.markdown("### 💾 Exportar resultados")
 
     reporte_txt = generar_reporte_txt(resultado, sucursal)
-
     base_name = f"auditoria_{sucursal or 'sucursal'}_{datetime.now():%Y%m%d_%H%M%S}"
 
     col_d1, col_d2, col_d3 = st.columns(3)
     with col_d1:
         st.download_button(
-            "📄 Descargar Reporte (.txt)",
+            "📄 Reporte (.txt)",
             data=reporte_txt,
             file_name=f"{base_name}.txt",
             mime="text/plain",
@@ -1527,7 +1552,7 @@ with tabs[0]:
         ], ignore_index=True)
         if not df_difs_export.empty:
             st.download_button(
-                "📋 Descargar Datos (.csv)",
+                "📋 Datos (.csv)",
                 data=df_difs_export.to_csv(index=False),
                 file_name=f"{base_name}_completo.csv",
                 mime="text/csv",
@@ -1535,6 +1560,7 @@ with tabs[0]:
             )
 
     # ─── Nota final ───
+    st.markdown("")
     if s['veredicto'] == "APROBADA":
         st.success("✅ No se detectaron diferencias que requieran acción. "
                     "Podés firmar el reporte y archivar.")
@@ -1546,19 +1572,15 @@ with tabs[0]:
                   "realizar un recuento físico de los productos conflictivos "
                   "antes de ajustar el sistema.")
 
-    st.info(f"💾 Auditoría guardada con ID **#{audit_id}**. Podés consultarla "
-            "desde la pestaña **📋 Historial** en cualquier momento.")
+    st.info(f"💾 Auditoría guardada con ID **#{audit_id}**. Consultala desde "
+            "la pestaña **📋 Historial**.")
 
 # ─────────────────────────────────────────────
 #  TAB 2: Historial
 # ─────────────────────────────────────────────
 
 with tabs[1]:
-    # ─── 3 niveles de navegación:
-    #   Nivel 1 → auditoría específica (audit_id_ver)
-    #   Nivel 2 → historial de sucursal  (sucursal_ver)
-    #   Nivel 3 → panel de sucursales    (default)
-    # ─────────────────────────────────────────────
+    # ─── 3 niveles de navegación con breadcrumbs ───
 
     # ─── NIVEL 1: Ver auditoría específica ───
     if st.session_state.get('audit_id_ver'):
@@ -1575,42 +1597,56 @@ with tabs[1]:
         s_hist = resultado_hist['stats']
         tabs_hist = resultado_hist['tablas']
 
-        # Botón volver — va a sucursal si venimos de ahí, si no al panel
-        col_back, _ = st.columns([1, 4])
-        with col_back:
-            if st.button("← Volver", use_container_width=False):
+        # Breadcrumb
+        suc_name = a['sucursal'] or '(sin sucursal)'
+        st.markdown(f"""
+        <div class="breadcrumb">
+            <span class="bc-link" onclick="window.streamlit.setComponentValue('bc_panel')">🏪 Sucursales</span>
+            <span class="bc-sep">›</span>
+            <span class="bc-link" onclick="window.streamlit.setComponentValue('bc_suc')">{suc_name}</span>
+            <span class="bc-sep">›</span>
+            <span class="bc-current">#{audit_id_ver}</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Navigation buttons
+        col_bc1, col_bc2, _ = st.columns([1, 1, 4])
+        with col_bc1:
+            if st.button("← Sucursal", type="secondary", use_container_width=True):
                 st.session_state.audit_id_ver = None
+                st.rerun()
+        with col_bc2:
+            if st.button("← Panel", type="tertiary", use_container_width=True):
+                st.session_state.audit_id_ver = None
+                st.session_state.sucursal_ver = None
                 st.rerun()
 
         st.markdown("---")
 
-        # Veredicto
-        ver_color = {"APROBADA": "green", "OBSERVADA": "orange", "RECHAZADA": "red"}
-        vcolor = ver_color.get(s_hist['veredicto'], "gray")
+        # Veredicto hero
+        ver_colors = {"APROBADA": "#16a34a", "OBSERVADA": "#d97706", "RECHAZADA": "#dc2626"}
+        vcolor = ver_colors.get(s_hist['veredicto'], "gray")
+        pill_cls = {"APROBADA": "pill-green", "OBSERVADA": "pill-yellow", "RECHAZADA": "pill-red"}
         st.markdown(f"""
-        <div style="background: white; border-radius: 12px; padding: 20px;
-                    border-left: 5px solid {vcolor};
-                    box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 20px;">
-            <span style="font-size: 1.5rem;">{s_hist['veredicto_icono']}</span>
-            <span style="font-size: 1.3rem; font-weight: 700; color: {vcolor};">
-                {s_hist['veredicto']}
-            </span>
-            <span style="color: #6b7280; margin-left: 8px;">— {s_hist['veredicto_msg']}</span>
-            <div style="margin-top: 6px; color: #6b7280; font-size: 0.9rem;">
-                🏪 {a['sucursal'] or 'Sin sucursal'} &nbsp;·&nbsp;
-                🕐 {datetime.fromisoformat(a['fecha']).strftime('%d/%m/%Y %H:%M')} &nbsp;·&nbsp;
-                📁 {a['archivo_fisico']} / {a['archivo_central']}
+        <div class="veredicto-hero" style="border-left-color: {vcolor};">
+            <span class="v-id">#{audit_id_ver}</span>
+            <span class="v-icon">{s_hist['veredicto_icono']}</span>
+            <span class="v-title" style="color: {vcolor};">{s_hist['veredicto']}</span>
+            <span class="pill {pill_cls.get(s_hist['veredicto'], '')}">{s_hist['pct_coincidencia']}%</span>
+            <div class="v-sub">
+                🏪 {suc_name} &nbsp;·&nbsp;
+                🕐 {datetime.fromisoformat(a['fecha']).strftime('%d/%m/%Y %H:%M')}
             </div>
         </div>
         """, unsafe_allow_html=True)
 
         # Métricas
-        st.markdown("### 📊 Resumen")
+        st.markdown('<div class="section-label">Resumen</div>', unsafe_allow_html=True)
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("SKU Analizados", s_hist['total_sku'])
         m2.metric("Coinciden", f"{s_hist['coinciden']} ({s_hist['pct_coincidencia']}%)")
         m3.metric("Con Diferencias", s_hist['diferencias'])
-        m4.metric("Diferencia Neta", s_hist['diferencia_neta'])
+        m4.metric("Diferencia Neta", f"{s_hist['diferencia_neta']:+,}")
 
         # Tablas
         if not tabs_hist['faltantes'].empty:
@@ -1629,26 +1665,26 @@ with tabs[1]:
             with st.expander(f"✅ Coinciden ({len(tabs_hist['coinciden'])})"):
                 st.dataframe(tabs_hist['coinciden'], use_container_width=True, hide_index=True)
 
-        # Exportar reporte desde historial
-        st.markdown("### 💾 Exportar")
-        reporte_hist = generar_reporte_txt(resultado_hist, a['sucursal'])
-        st.download_button(
-            "📄 Descargar Reporte (.txt)",
-            data=reporte_hist,
-            file_name=f"auditoria_#{audit_id_ver}_{a['sucursal'] or 'sucursal'}_{a['fecha'][:10]}.txt",
-            mime="text/plain",
-            use_container_width=False,
-        )
-
-        # Opción eliminar
+        # Exportar + Eliminar
         st.markdown("---")
-        with st.expander("🗑️ Eliminar esta auditoría"):
-            st.warning("⚠️ Esta acción no se puede deshacer.")
-            col_del1, _ = st.columns([1, 3])
-            with col_del1:
-                if st.button("🗑️ Eliminar auditoría", use_container_width=True):
+        col_exp, col_danger = st.columns([3, 1])
+        with col_exp:
+            st.markdown("### 💾 Exportar")
+            reporte_hist = generar_reporte_txt(resultado_hist, a['sucursal'])
+            st.download_button(
+                "📄 Descargar Reporte (.txt)",
+                data=reporte_hist,
+                file_name=f"auditoria_#{audit_id_ver}_{a['sucursal'] or 'sucursal'}_{a['fecha'][:10]}.txt",
+                mime="text/plain",
+                use_container_width=True,
+            )
+
+        with col_danger:
+            st.markdown("### &nbsp;")
+            with st.expander("🗑️ Eliminar"):
+                st.warning("⚠️ No se puede deshacer.")
+                if st.button("🗑️ Eliminar auditoría", use_container_width=True, type="primary"):
                     eliminar_auditoria(audit_id_ver)
-                    st.success(f"✅ Auditoría #{audit_id_ver} eliminada.")
                     st.session_state.audit_id_ver = None
                     st.cache_data.clear()
                     st.rerun()
@@ -1659,9 +1695,18 @@ with tabs[1]:
     if st.session_state.get('sucursal_ver'):
         sucursal_nombre = st.session_state.sucursal_ver
 
-        col_back, _ = st.columns([1, 4])
-        with col_back:
-            if st.button("← Todas las sucursales", use_container_width=False):
+        # Breadcrumb
+        st.markdown(f"""
+        <div class="breadcrumb">
+            <span class="bc-link">🏪 Sucursales</span>
+            <span class="bc-sep">›</span>
+            <span class="bc-current">{sucursal_nombre}</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col_bc, _ = st.columns([1, 5])
+        with col_bc:
+            if st.button("← Todas las sucursales", type="secondary", use_container_width=True):
                 st.session_state.sucursal_ver = None
                 st.rerun()
 
@@ -1677,7 +1722,7 @@ with tabs[1]:
             st.info("📭 No hay auditorías para esta sucursal.")
             st.stop()
 
-        # Resumen de la sucursal
+        # Resumen
         total = len(auditorias_suc)
         aprob = sum(1 for a in auditorias_suc if a['veredicto'] == 'APROBADA')
         observ = sum(1 for a in auditorias_suc if a['veredicto'] == 'OBSERVADA')
@@ -1690,9 +1735,9 @@ with tabs[1]:
         col_s1.metric("Auditorías", total)
         col_s2.metric("Promedio", f"{prom_pct:.1f}%")
         col_s3.metric("Período", f"{primera} — {ultima}")
-        col_s4.metric("Resultados", f"✅ {aprob} · ⚠️ {observ} · 🔴 {rechaz}")
+        col_s4.metric("Resultados", f"✅{aprob} ⚠️{observ} 🔴{rechaz}")
 
-        # Evolución del % de coincidencia
+        # Evolución
         evol = []
         for a in reversed(auditorias_suc):
             evol.append({
@@ -1708,11 +1753,12 @@ with tabs[1]:
         st.markdown("---")
         st.markdown("### 📋 Historial de auditorías")
 
-        # Timeline
+        # Timeline con botones estilizados
         for a in auditorias_suc:
-            ver_color = {"APROBADA": "aprobada", "OBSERVADA": "observada", "RECHAZADA": "rechazada"}
-            css_class = ver_color.get(a['veredicto'], "")
+            ver_cls = {"APROBADA": "aprobada", "OBSERVADA": "observada", "RECHAZADA": "rechazada"}
+            css_class = ver_cls.get(a['veredicto'], "")
             icono = "✅" if a['veredicto'] == "APROBADA" else "⚠️" if a['veredicto'] == "OBSERVADA" else "🔴"
+            pill_cls_v = {"APROBADA": "pill-green", "OBSERVADA": "pill-yellow", "RECHAZADA": "pill-red"}
             fecha = datetime.fromisoformat(a['fecha']).strftime('%d/%m/%Y %H:%M')
 
             st.markdown(f"""
@@ -1720,22 +1766,24 @@ with tabs[1]:
                 <div class="tl-header">
                     <span class="tl-fecha">{fecha} · ID #{a['id']}</span>
                     <span class="tl-veredicto">{icono} {a['veredicto']}</span>
+                    <span class="pill {pill_cls_v.get(a['veredicto'], '')}">{a['pct_coincidencia']}%</span>
                 </div>
                 <div class="tl-stats">
-                    {a['coinciden']}/{a['total_sku']} OK ({a['pct_coincidencia']}%) ·
-                    Falt: {a['faltantes']} · Sobr: {a['sobrantes']} ·
-                    {a['archivo_fisico']} / {a['archivo_central']}
+                    {a['coinciden']}/{a['total_sku']} OK ·
+                    Falt: {a['faltantes']} · Sobr: {a['sobrantes']}
                 </div>
-                <div class="tl-actions">
+            </div>
             """, unsafe_allow_html=True)
 
-            col_t1, col_t2 = st.columns([1, 8])
+            col_t1, col_t2 = st.columns([1, 1])
             with col_t1:
-                if st.button("👁️ Ver", key=f"ver_{a['id']}", use_container_width=True):
+                if st.button("👁️ Ver detalle", key=f"ver_{a['id']}", type="primary",
+                             use_container_width=True):
                     st.session_state.audit_id_ver = a['id']
                     st.rerun()
             with col_t2:
-                if st.button("🗑️ Eliminar", key=f"del_{a['id']}", use_container_width=True):
+                if st.button("🗑️ Eliminar", key=f"del_{a['id']}", type="tertiary",
+                             use_container_width=True):
                     eliminar_auditoria(a['id'])
                     st.cache_data.clear()
                     st.rerun()
@@ -1750,6 +1798,8 @@ with tabs[1]:
     if not sucursales:
         st.info("📭 No hay auditorías guardadas todavía. Ejecutá una auditoría "
                 "desde la pestaña **➕ Nueva Auditoría** y se guardará automáticamente.")
+
+        st.markdown("---")
         st.markdown("### 🎲 ¿Querés probar la app?")
         st.markdown(
             "<p style='color: #6b7280;'>Cargá datos de ejemplo para ver "
@@ -1758,36 +1808,34 @@ with tabs[1]:
         )
         col_se1, col_se2 = st.columns([1, 1])
         with col_se1:
-            if st.button("🎲 Cargar datos de ejemplo", use_container_width=True):
+            if st.button("🎲 Cargar datos de ejemplo", type="primary", use_container_width=True):
                 sembrar_datos_ejemplo()
                 st.cache_data.clear()
                 st.rerun()
         with col_se2:
-            if st.button("🔄 Forzar refresco", use_container_width=True):
+            if st.button("🔄 Refrescar", type="secondary", use_container_width=True):
                 st.cache_data.clear()
-                st.session_state.audit_id_ver = None
-                st.session_state.sucursal_ver = None
                 st.rerun()
         st.stop()
 
     # Métrica global
     total_audits = sum(s['total_auditorias'] for s in sucursales)
     st.markdown(
-        f"<p style='color: #6b7280;'>{total_audits} auditorías en {len(sucursales)} sucursales. "
-        f"<small>(Si no ves datos actualizados, usá 🔄 Forzar refresco abajo)</small></p>",
+        f"<p style='color: #6b7280;'>{total_audits} auditorías en "
+        f"{len(sucursales)} sucursales</p>",
         unsafe_allow_html=True,
     )
 
-    # Siempre mostrar botón de refresco + seed
-    col_r1, col_r2, col_r3 = st.columns([1, 1, 2])
+    # Action bar
+    col_r1, col_r2, col_r3 = st.columns([1, 1, 3])
     with col_r1:
-        if st.button("🔄 Forzar refresco", use_container_width=True):
+        if st.button("🔄 Refrescar", type="secondary", use_container_width=True):
             st.cache_data.clear()
             st.session_state.audit_id_ver = None
             st.session_state.sucursal_ver = None
             st.rerun()
     with col_r2:
-        if st.button("🗑️ Resetear DB", use_container_width=True, 
+        if st.button("🗑️ Resetear DB", type="tertiary", use_container_width=True,
                      help="Borra todos los datos y recarga ejemplos"):
             conn = get_db()
             conn.execute("DELETE FROM diferencias")
@@ -1797,62 +1845,65 @@ with tabs[1]:
             st.cache_data.clear()
             st.session_state.audit_id_ver = None
             st.session_state.sucursal_ver = None
-            # Auto-seed after wipe
             sembrar_datos_ejemplo()
             st.rerun()
-    with col_r3:
-        st.markdown(
-            "<p style='color: #9ca3af; font-size: 0.8rem; padding-top: 6px;'>"
-            "Refresco = recargar datos · Resetear = vaciar DB y volver a empezar</p>",
-            unsafe_allow_html=True,
-        )
 
     st.markdown("---")
 
-    # Grilla de sucursales
-    cols_grilla = st.columns(3)
+    # Grilla de sucursales — 2 o 3 cols según cantidad
+    n_cols = min(3, max(2, len(sucursales)))
+    cols_grilla = st.columns(n_cols)
     for i, s in enumerate(sucursales):
-        with cols_grilla[i % 3]:
+        with cols_grilla[i % n_cols]:
             nombre = s['sucursal'] if s['sucursal'] else '(Sin sucursal)'
             ultima = datetime.fromisoformat(s['ultima_fecha']).strftime('%d/%m/%Y') if s['ultima_fecha'] else '—'
             prom = s['promedio_coincidencia'] or 0
-            icono = "✅" if prom >= 95 else "⚠️" if prom >= 80 else "🔴"
+
+            # Icon class based on prom
+            if prom >= 95:
+                icon_cls, icon_letter = "green", "✓"
+            elif prom >= 80:
+                icon_cls, icon_letter = "yellow", "!"
+            else:
+                icon_cls, icon_letter = "red", "✗"
 
             st.markdown(f"""
-            <div class="sucursal-card" onclick="this.querySelector('button').click()">
-                <div class="nombre">
-                    {icono} {nombre}
-                    <span class="badge-count">{s['total_auditorias']}</span>
+            <div class="sucursal-card">
+                <div class="sc-header">
+                    <div class="sc-icon {icon_cls}">{icon_letter}</div>
+                    <span class="sc-name">{nombre}</span>
+                    <span class="sc-badge">{s['total_auditorias']}</span>
                 </div>
-                <div class="meta">Última: {ultima}</div>
-                <div class="stats-row">
-                    <div class="stat-item">
-                        <div class="num">{prom:.1f}%</div>
-                        <div class="label">Promedio</div>
+                <div class="sc-meta">Última: {ultima}</div>
+                <div class="sc-stats">
+                    <div class="sc-stat">
+                        <div class="val">{prom:.0f}%</div>
+                        <div class="lbl">Promedio</div>
                     </div>
-                    <div class="stat-item">
-                        <div class="num aprobada">{s['aprobadas']}</div>
-                        <div class="label">✅ OK</div>
+                    <div class="sc-stat">
+                        <div class="val ok">{s['aprobadas']}</div>
+                        <div class="lbl">✅ OK</div>
                     </div>
-                    <div class="stat-item">
-                        <div class="num observada">{s['observadas']}</div>
-                        <div class="label">⚠️ Obs</div>
+                    <div class="sc-stat">
+                        <div class="val warn">{s['observadas']}</div>
+                        <div class="lbl">⚠️ Obs</div>
                     </div>
-                    <div class="stat-item">
-                        <div class="num rechazada">{s['rechazadas']}</div>
-                        <div class="label">🔴 Rech</div>
+                    <div class="sc-stat">
+                        <div class="val bad">{s['rechazadas']}</div>
+                        <div class="lbl">🔴 Rech</div>
                     </div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
-            if st.button(f"Ver historial", key=f"suc_{i}", use_container_width=True):
+            if st.button("Ver historial →", key=f"suc_{i}", type="primary",
+                         use_container_width=True):
                 st.session_state.sucursal_ver = s['sucursal']
                 st.rerun()
 
 # ─── Footer ───
 st.markdown(
     '<div class="footer-badge">'
-    'Agente de Auditoría de Inventarios v2.0 · Datos guardados en SQLite</div>',
+    'Agente de Auditoría de Inventarios v3.0 · Datos guardados en SQLite</div>',
     unsafe_allow_html=True,
 )
