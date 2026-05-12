@@ -803,7 +803,9 @@ def detectar_columna(df: pd.DataFrame, candidates: list[str], fallback_idx: int 
     for c in candidates:
         if c in cols_lower:
             return cols_lower[c]
-    return df.columns[fallback_idx]
+    # clamp para evitar IndexError si el DF tiene menos columnas que el fallback
+    safe_idx = min(fallback_idx, len(df.columns) - 1)
+    return df.columns[safe_idx]
 
 
 def parse_cantidad(val) -> int:
